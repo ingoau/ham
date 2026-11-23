@@ -2,7 +2,7 @@
 // the sort order, and grouping. Template values are rendered separately (in
 // the sandbox) and passed in by account id.
 import { isPending, type Account, type AccountGroup, type LineKind, type ViewSettings } from '@shared/types'
-import { accountName, displayName } from './util'
+import { accountName, bestName, displayName } from './util'
 
 export const ATTEMPT_MS = 15 * 60 * 1000
 
@@ -68,6 +68,8 @@ export function lineValue(a: Account, kind: LineKind, tplValue: string | undefin
   switch (kind) {
     case 'email':
       return a.email
+    case 'best':
+      return bestName(a)
     case 'local':
       return accountName(a)
     case 'sfull':

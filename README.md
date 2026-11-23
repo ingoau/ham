@@ -18,7 +18,7 @@ HAM signs in to [Hack Club Auth](https://auth.hackclub.com) with your email, kee
 - **Every account in one list**, with a "Signed out" badge when a session has ended.
 - **A command palette** (Cmd+K) to jump to any account or run an action.
 - **Edit name and phone number.** Changes save straight to auth.hackclub.com.
-- **Local names** that only HAM keeps ("Personal", "Club leads"), to tell look-alike accounts apart. Show them in the list from View options, search for them, set them in bulk, or use `{{ account.local }}` in templates.
+- **Local names** that only HAM keeps ("Personal", "Club leads"), to tell look-alike accounts apart. The list shows each account by its local name, then its Slack display name, Slack full name, and finally its Hack Club name. Search for them, set them in bulk, or use `{{ account.local }}` in templates.
 - **Select and bulk edit** with Jinja templates (`{{ account.hca.first | lower }}-alt{{ index }}`, with Slack fields under `account.slack` and custom ones under `account.slack.fields`): preview every change, apply in the background, undo.
 - **View options:** sort, group and choose what each row shows, including templates.
 - **Launch Slack** for any account in its own window, signed in through Hack Club.
@@ -29,7 +29,7 @@ HAM signs in to [Hack Club Auth](https://auth.hackclub.com) with your email, kee
 | --- | --- |
 | ![Adding an account](docs/screenshots/sign-in-code.png) | ![The embedded dashboard](docs/screenshots/dashboard.png) |
 | ![Dark mode](docs/screenshots/profile-dark.png) | ![A signed-out account](docs/screenshots/signed-out.png) |
-| ![Setting a local name](docs/screenshots/local-name.png) | ![Local names as the list's first line](docs/screenshots/local-name-list.png) |
+| ![Setting a local name](docs/screenshots/local-name.png) | ![Local names in the list](docs/screenshots/local-name-list.png) |
 
 ## Install
 

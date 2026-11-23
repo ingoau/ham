@@ -34,7 +34,7 @@ export interface InboxSettings {
 }
 
 interface StoreFile {
-  version: 2
+  version: 3
   accounts: StoredAccount[]
   groups: AccountGroup[]
   window?: WindowState
@@ -49,11 +49,15 @@ interface StoreFile {
 
 const EMPTY_PENDING = null
 
-/** Bring a v1 store (before pending accounts) up to v2, and fill in newer fields. */
+/** Bring an older store up to v3 (v2: pending accounts, v3: best-name first line) and fill in newer fields. */
 function migrate(raw: Record<string, unknown>): StoreFile {
+  const version = typeof raw.version === 'number' ? raw.version : 1
+  const view = { ...DEFAULT_VIEW, ...((raw.view as Partial<ViewSettings>) ?? {}) }
+  // The first line's default moved from the Hack Club name to the best name.
+  if (version < 3 && view.line1 === 'hca') view.line1 = 'best'
   const accounts = (Array.isArray(raw.accounts) ? raw.accounts : []) as Partial<StoredAccount>[]
   return {
-    version: 2,
+    version: 3,
     accounts: accounts.map((a) => ({
       id: a.id!,
       email: a.email!,
@@ -77,7 +81,7 @@ function migrate(raw: Record<string, unknown>): StoreFile {
     window: raw.window as WindowState | undefined,
     dismissedUpdate: raw.dismissedUpdate as string | undefined,
     theme: (raw.theme as Theme) ?? 'system',
-    view: migrateView({ ...DEFAULT_VIEW, ...((raw.view as Partial<ViewSettings>) ?? {}) }),
+    view: migrateView(view),
     inbox: (raw.inbox as InboxSettings | null) ?? null,
     loginLog: (raw.loginLog as number[]) ?? [],
     checkLog: (raw.checkLog as number[]) ?? []

@@ -82,7 +82,7 @@ export interface UpdateInfo {
 
 export type Theme = 'system' | 'light' | 'dark'
 
-export type LineKind = 'local' | 'hca' | 'sfull' | 'sdisplay' | 'email' | 'tpl' | 'none'
+export type LineKind = 'best' | 'local' | 'hca' | 'sfull' | 'sdisplay' | 'email' | 'tpl' | 'none'
 export type SortBy = 'manual' | 'line1' | 'hca' | 'sdisplay' | 'email' | 'added' | 'status'
 export type GroupBy = 'none' | 'status' | 'domain' | 'slack' | 'tpl'
 
@@ -104,7 +104,7 @@ export const DEFAULT_VIEW: ViewSettings = {
   sortDir: 'asc',
   groupBy: 'none',
   groupTpl: '{{ account.slack.title | default("No title") }}',
-  line1: 'hca',
+  line1: 'best',
   line1Tpl: '{{ account.hca.first }} {{ account.hca.last }}',
   line2: 'email',
   line2Tpl: '{{ account.email }}',

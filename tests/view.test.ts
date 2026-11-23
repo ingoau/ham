@@ -88,11 +88,19 @@ describe('buildView', () => {
     const byStatus = buildView([a, b], { ...DEFAULT_VIEW, groupBy: 'status' }, noTpl, false, NOW, groups)
     expect(byStatus.groups.map((g) => g.name)).toEqual(['Signed in'])
   })
-  it('only shows local names when a line is set to them', () => {
+  it('picks the best name: local, Slack display, Slack full, then Hack Club', () => {
+    const local = acct({ localName: 'Main', slack: { linked: true, session: true, profile: { display_name: 'disp', real_name: 'Real' } } })
+    const disp = acct({ slack: { linked: true, session: true, profile: { display_name: 'disp2', real_name: 'Real' } } })
+    const full = acct({ slack: { linked: true, session: true, profile: { display_name: '', real_name: 'Real3' } } })
+    const hca = acct({ firstName: 'Amy' })
+    const v = buildView([local, disp, full, hca], { ...DEFAULT_VIEW, sortBy: 'manual' }, noTpl, false, NOW)
+    expect(v.groups[0].rows.map((r) => r.title)).toEqual(['Main', 'disp2', 'Real3', `Amy Hack${hca.id.slice(1)}`])
+    const hcaOnly = buildView([local], { ...DEFAULT_VIEW, line1: 'hca' }, noTpl, false, NOW)
+    expect(hcaOnly.groups[0].rows[0].title).toBe(`Fiona Hack${local.id.slice(1)}`)
+  })
+  it('shows local names, falling back to the Hack Club name', () => {
     const a = acct({ firstName: 'Zed', localName: 'Main' })
     const b = acct({ firstName: 'Amy' })
-    const plain = buildView([a, b], DEFAULT_VIEW, noTpl, false, NOW)
-    expect(plain.groups[0].rows.map((r) => r.title)).toEqual([`Amy Hack${b.id.slice(1)}`, `Zed Hack${a.id.slice(1)}`])
     const local = buildView([a, b], { ...DEFAULT_VIEW, line1: 'local', line2: 'hca' }, noTpl, false, NOW)
     // Falls back to the Hack Club name, and sorts by what's shown.
     expect(local.groups[0].rows.map((r) => [r.title, r.sub])).toEqual([
