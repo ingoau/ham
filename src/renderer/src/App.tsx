@@ -1,13 +1,16 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as AlertDialog from '@radix-ui/react-alert-dialog'
 import * as Tabs from '@radix-ui/react-tabs'
-import { Lock, MessageSquare, RotateCw, UserPlus } from 'lucide-react'
+import { Lock, MessageSquare, Plus, RotateCw, Tag, UserPlus } from 'lucide-react'
 import { Toaster, toast } from 'sonner'
 import { fieldValue, type FieldDef } from '@shared/fields'
 import {
   isPending,
+  TAG_COLORS,
   type Account,
+  type AccountFilter,
   type AccountGroup,
+  type AccountTag,
   type AppState,
   type ContextMenuItem,
   type DashboardNotice,
@@ -34,6 +37,8 @@ import { SessionCard } from './components/SessionCard'
 import { SettingsDialog } from './components/SettingsDialog'
 import { Sidebar, type BulkProgress, type SectionMove } from './components/Sidebar'
 import { SignOutDialog } from './components/SignOutDialog'
+import { TagDialog } from './components/TagDialog'
+import { TagDot } from './components/Tags'
 
 type Tab = 'profile' | 'web'
 type Sheet =
@@ -43,6 +48,7 @@ type Sheet =
   | { kind: 'new-group'; ids: string[] }
   | { kind: 'rename-group'; group: AccountGroup }
   | { kind: 'local-name'; account: Account }
+  | { kind: 'tag'; tag: AccountTag | null; ids: string[] }
 
 const remembered = {
   get: (key: string) => {
@@ -99,6 +105,7 @@ export function App() {
   const signOutLatch = useLatched(confirmSignOut)
   const slackLatch = useLatched(slackConfirm)
   const [paletteOpen, setPaletteOpen] = useState(false)
+  const [filterOpen, setFilterOpen] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [dashState, setDashState] = useState<DashboardState | null>(null)
   const [notice, setNotice] = useState<DashboardNotice | null>(null)
@@ -141,7 +148,10 @@ export function App() {
 
   const tv = useViewTemplates(accounts, app?.view)
   const viewModel = useMemo(
-    () => (app ? buildView(accounts, app.view, tv, inboxOn, now, app.groups) : { groups: [], order: [], showSub: true, draggable: false }),
+    () =>
+      app
+        ? buildView(accounts, app.view, tv, inboxOn, now, app.groups, new Set(app.tags.map((t) => t.id)))
+        : { groups: [], order: [], visible: [], total: 0, filtering: false, showSub: true, draggable: false },
     [app, accounts, tv, inboxOn, now]
   )
 
@@ -326,6 +336,124 @@ export function App() {
     }
   }
 
+  const tags = app?.tags ?? []
+  const tagsOf = (a: Account) => tags.filter((t) => a.tagIds.includes(t.id))
+
+  /** Add a tag to accounts (on) or take it off. */
+  const setTag = (list: Account[], tagId: string, on: boolean) => {
+    const ids = new Set(list.map((a) => a.id))
+    setApp((s) =>
+      s
+        ? {
+            ...s,
+            accounts: s.accounts.map((a) =>
+              !ids.has(a.id) || a.tagIds.includes(tagId) === on ? a : { ...a, tagIds: on ? [...a.tagIds, tagId] : a.tagIds.filter((t) => t !== tagId) }
+            )
+          }
+        : s
+    )
+    void window.ham.accounts.setTag([...ids], tagId, on)
+  }
+
+  /** The tag checklist shared by account menus, the bulk pane and the detail header. */
+  const tagItems = (list: Account[]): ContextMenuItem[] => [
+    ...tags.map((t) => ({ id: `tag:${t.id}`, label: t.name, checked: list.length > 0 && list.every((a) => a.tagIds.includes(t.id)) })),
+    ...(tags.length ? [{ type: 'separator' as const }] : []),
+    { id: 'tag:new', label: 'New Tag…' }
+  ]
+
+  /** A tag ticked on every account comes off them all; otherwise it goes on every one. */
+  const handleTagChoice = (choice: string | null, list: Account[]): boolean => {
+    if (!choice?.startsWith('tag:')) return false
+    const id = choice.slice('tag:'.length)
+    if (id === 'new') setSheet({ kind: 'tag', tag: null, ids: list.map((a) => a.id) })
+    else setTag(list, id, !list.every((a) => a.tagIds.includes(id)))
+    return true
+  }
+
+  const showTagPicker = async (list: Account[]) => {
+    handleTagChoice(await window.ham.ui.contextMenu(tagItems(list)), list)
+  }
+
+  /** Show only accounts that pass the filter, and drop hidden ones from the selection. */
+  const setFilter = (filter: AccountFilter) => {
+    if (!app) return
+    const next = { ...app.view, filter }
+    setView(next)
+    if (picked.size) {
+      const shown = new Set(buildView(accounts, next, tv, inboxOn, now, groups, new Set(tags.map((t) => t.id))).visible)
+      if ([...picked].some((id) => !shown.has(id))) setPicked(new Set([...picked].filter((id) => shown.has(id))))
+    }
+  }
+
+  const deleteTag = (tag: AccountTag) => {
+    const members = accounts.filter((a) => a.tagIds.includes(tag.id)).map((a) => a.id)
+    const at = tags.findIndex((t) => t.id === tag.id)
+    void window.ham.tags.remove(tag.id)
+    toast(`Deleted “${tag.name}”`, {
+      action: {
+        label: 'Undo',
+        onClick: async () => {
+          const id = await window.ham.tags.create(tag.name, tag.color, members)
+          if (!id) return
+          const order = tags.map((t) => t.id).filter((t) => t !== tag.id)
+          order.splice(at, 0, id)
+          void window.ham.tags.reorder(order)
+        }
+      }
+    })
+  }
+
+  /** Edit or delete a tag (from the filter popover). */
+  const showTagMenu = async (tag: AccountTag) => {
+    const at = tags.indexOf(tag)
+    const members = accounts.filter((a) => a.tagIds.includes(tag.id))
+    const choice = await window.ham.ui.contextMenu([
+      { id: 'edit', label: 'Edit…' },
+      { id: 'select', label: 'Select Accounts with Tag', enabled: members.length > 0 },
+      { id: 'up', label: 'Move Up', enabled: at > 0 },
+      { id: 'down', label: 'Move Down', enabled: at < tags.length - 1 },
+      { type: 'separator' },
+      { id: 'delete', label: 'Delete Tag' }
+    ])
+    switch (choice) {
+      case 'edit':
+        setFilterOpen(false)
+        return setSheet({ kind: 'tag', tag, ids: [] })
+      case 'select':
+        setFilterOpen(false)
+        return setPicked(new Set(members.map((a) => a.id)))
+      case 'up':
+      case 'down': {
+        const ids = tags.map((t) => t.id)
+        const j = choice === 'up' ? at - 1 : at + 1
+        ;[ids[at], ids[j]] = [ids[j], ids[at]]
+        return void window.ham.tags.reorder(ids)
+      }
+      case 'delete':
+        return deleteTag(tag)
+    }
+  }
+
+  /** Click on a tag chip in the detail header. */
+  const showChipMenu = async (account: Account, tag: AccountTag) => {
+    const choice = await window.ham.ui.contextMenu([
+      { id: 'remove', label: `Remove “${tag.name}”` },
+      { id: 'filter', label: `Show Only “${tag.name}”` },
+      { type: 'separator' },
+      { id: 'edit', label: 'Edit Tag…' }
+    ])
+    if (choice === 'remove') setTag([account], tag.id, false)
+    else if (choice === 'filter' && app) setFilter({ ...app.view.filter, tags: [tag.id] })
+    else if (choice === 'edit') setSheet({ kind: 'tag', tag, ids: [] })
+  }
+
+  const saveTag = async (sheetTag: AccountTag | null, ids: string[], name: string, color: AccountTag['color']) => {
+    setSheet(null)
+    if (sheetTag) void window.ham.tags.update(sheetTag.id, { name, color })
+    else await window.ham.tags.create(name, color, ids)
+  }
+
   const isEditable = (el: Element | null) =>
     !!el && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || (el as HTMLElement).isContentEditable)
 
@@ -338,6 +466,7 @@ export function App() {
       ? [
           { id: 'pin', label: pinLabel, accelerator: 'CmdOrCtrl+Shift+P' },
           { label: 'Move to Group', submenu: groupItems(list) },
+          { label: 'Tags', submenu: tagItems(list) },
           ...(list.some((a) => a.status === 'signed-out') ? [{ id: 'sign-in', label: 'Sign In Again' }] : []),
           { id: 'copy', label: `Copy ${list.length} Emails` },
           { type: 'separator' },
@@ -356,6 +485,7 @@ export function App() {
           { type: 'separator' },
           { id: 'pin', label: pinLabel, accelerator: 'CmdOrCtrl+Shift+P' },
           { label: 'Move to Group', submenu: groupItems(list) },
+          { label: 'Tags', submenu: tagItems(list) },
           ...(viewModel.draggable
             ? [
                 { id: 'up', label: 'Move Up', accelerator: 'Alt+CmdOrCtrl+Up' },
@@ -373,7 +503,7 @@ export function App() {
           }
         ]
     const choice = await window.ham.ui.contextMenu(items)
-    if (handleGroupChoice(choice, list)) return
+    if (handleGroupChoice(choice, list) || handleTagChoice(choice, list)) return
     switch (choice) {
       case 'open':
         return select(account.id)
@@ -419,11 +549,13 @@ export function App() {
     setPicked(next)
     setAnchor(id)
   }
+  /** Every account the filter shows (collapsed sections included). */
+  const pickAll = () => setPicked(new Set(viewModel.visible))
   const selectAll = () => {
-    if (picked.size === accounts.length) {
+    if (viewModel.visible.length > 0 && viewModel.visible.every((id) => picked.has(id))) {
       setPicked(new Set())
       setAnchor(null)
-    } else setPicked(new Set(accounts.map((a) => a.id)))
+    } else pickAll()
   }
 
   const status = selected?.status
@@ -432,7 +564,7 @@ export function App() {
   const signedIn = status === 'signed-in'
   const bulkMode = picked.size > 0
   const showDashboard = tab === 'web' && signedIn && !bulkMode
-  const overlayOpen = sheet !== null || confirmSignOut !== null || paletteOpen || slackConfirm !== null
+  const overlayOpen = sheet !== null || confirmSignOut !== null || paletteOpen || slackConfirm !== null || filterOpen
   const mod = app?.info.platform === 'darwin' ? '⌘' : 'Ctrl+'
 
   const setView = useCallback((view: ViewSettings) => {
@@ -548,9 +680,13 @@ export function App() {
       case 'link-inbox':
         return setSheet({ kind: 'settings' })
       case 'select-all':
-        return setPicked(new Set(accounts.map((a) => a.id)))
+        return pickAll()
       case 'new-group':
         return setSheet({ kind: 'new-group', ids: [...picked] })
+      case 'new-tag':
+        return setSheet({ kind: 'tag', tag: null, ids: [...picked] })
+      case 'filter':
+        return setFilterOpen(true)
     }
   }
 
@@ -571,7 +707,11 @@ export function App() {
     if (command.type === 'select-all') {
       // In a text field ⌘A selects its text; elsewhere it selects every account.
       if (isEditable(document.activeElement)) return void document.execCommand('selectAll')
-      if (!overlayOpen) setPicked(new Set(accounts.map((a) => a.id)))
+      if (!overlayOpen) pickAll()
+      return
+    }
+    if (command.type === 'filter') {
+      if (sheet === null && confirmSignOut === null && !paletteOpen) setFilterOpen((o) => !o)
       return
     }
     if (overlayOpen) return
@@ -605,6 +745,9 @@ export function App() {
       case 'new-group':
         setSheet({ kind: 'new-group', ids: [...picked] })
         break
+      case 'new-tag':
+        setSheet({ kind: 'tag', tag: null, ids: [...picked] })
+        break
       case 'sign-out':
         if (selected) setConfirmSignOut(selected)
         break
@@ -618,7 +761,8 @@ export function App() {
       if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === 'a') {
         if (overlayOpen || isEditable(document.activeElement)) return
         e.preventDefault()
-        setPicked(e.shiftKey ? new Set() : new Set(accounts.map((a) => a.id)))
+        if (e.shiftKey) setPicked(new Set())
+        else pickAll()
         return
       }
       if (e.key !== 'Escape' || e.defaultPrevented || overlayOpen) return
@@ -626,7 +770,7 @@ export function App() {
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [overlayOpen, accounts])
+  }, [overlayOpen, viewModel.visible])
 
   if (!app) return <div className="app" />
   const shownSheet = sheetLatch.value
@@ -640,8 +784,19 @@ export function App() {
         groups={viewModel.groups}
         showSub={viewModel.showSub}
         order={viewModel.order}
+        visible={viewModel.visible}
+        filtering={viewModel.filtering}
         draggable={viewModel.draggable}
         accounts={accounts}
+        tags={tags}
+        filterOpen={filterOpen}
+        onFilterOpen={setFilterOpen}
+        onFilter={setFilter}
+        onNewTag={() => {
+          setFilterOpen(false)
+          setSheet({ kind: 'tag', tag: null, ids: [] })
+        }}
+        onTagMenu={(t) => void showTagMenu(t)}
         selectedId={selected?.id ?? null}
         picked={picked}
         inboxOn={inboxOn}
@@ -691,6 +846,8 @@ export function App() {
                 onClear={() => setPicked(new Set())}
                 onPin={(pinned) => setPinned(pickedAccounts, pinned)}
                 onGroup={() => void showGroupPicker(pickedAccounts)}
+                tags={tags}
+                onTags={() => void showTagPicker(pickedAccounts)}
                 onSignInAgain={() => {
                   const ids = pickedAccounts.filter((a) => a.status === 'signed-out').map((a) => a.id)
                   void window.ham.accounts.signInAgain(ids)
@@ -719,6 +876,23 @@ export function App() {
                   <span className="email selectable">
                     {pending ? (status === 'failed' || status === 'stuck' ? 'Couldn’t add this account' : 'Adding this account') : selected.email}
                   </span>
+                  <div className="tag-list" aria-label="Tags" role="group">
+                    {tagsOf(selected).map((t) => (
+                      <button key={t.id} className="tag-chip" aria-haspopup="menu" onClick={() => void showChipMenu(selected, t)}>
+                        <TagDot tag={t} />
+                        {t.name}
+                      </button>
+                    ))}
+                    <button
+                      className={`tag-chip add${tagsOf(selected).length ? ' icon-only' : ''}`}
+                      aria-haspopup="menu"
+                      aria-label="Add tag"
+                      onClick={() => void showTagPicker([selected])}
+                    >
+                      {tagsOf(selected).length ? <Plus size={13} aria-hidden /> : <Tag size={12} aria-hidden />}
+                      {!tagsOf(selected).length && 'Add tag'}
+                    </button>
+                  </div>
                 </div>
                 {signedIn && !showDashboard && (
                   <div className="header-actions">
@@ -797,6 +971,7 @@ export function App() {
         open={paletteOpen}
         onOpenChange={setPaletteOpen}
         accounts={accounts}
+        tags={tags}
         selectedId={selected?.id ?? null}
         mod={mod}
         onSelectAccount={select}
@@ -857,6 +1032,17 @@ export function App() {
             setSheet(null)
             void window.ham.accounts.setLocalName(shownSheet.account.id, name)
           }}
+        />
+      )}
+      {shownSheet?.kind === 'tag' && (
+        <TagDialog
+          key={sheetLatch.n}
+          open={sheetLatch.open}
+          tag={shownSheet.tag}
+          count={shownSheet.ids.length}
+          nextColor={TAG_COLORS[tags.length % TAG_COLORS.length]}
+          onClose={() => setSheet(null)}
+          onSubmit={(name, color) => void saveTag(shownSheet.tag, shownSheet.ids, name, color)}
         />
       )}
       {signOutLatch.value && (

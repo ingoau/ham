@@ -1,16 +1,17 @@
 import { Command } from 'cmdk'
-import { ClipboardList, FolderPlus, Inbox, ListChecks, Mail, Plus, Settings } from 'lucide-react'
+import { ClipboardList, FolderPlus, Inbox, ListChecks, ListFilter, Mail, Plus, Settings, Tag } from 'lucide-react'
 import type { ReactNode } from 'react'
-import type { Account } from '@shared/types'
+import type { Account, AccountTag } from '@shared/types'
 import { displayName } from '../util'
 import { Avatar } from './Avatar'
 
-export type PaletteAction = 'add' | 'paste' | 'inbox' | 'settings' | 'link-inbox' | 'select-all' | 'new-group'
+export type PaletteAction = 'add' | 'paste' | 'inbox' | 'settings' | 'link-inbox' | 'select-all' | 'new-group' | 'new-tag' | 'filter'
 
 interface Props {
   open: boolean
   onOpenChange(open: boolean): void
   accounts: Account[]
+  tags: AccountTag[]
   selectedId: string | null
   mod: string
   onSelectAccount(id: string): void
@@ -24,11 +25,13 @@ const ACTIONS: { id: PaletteAction; label: string; icon: ReactNode; keywords: st
   { id: 'settings', label: 'Open Settings', icon: <Settings size={16} />, keywords: ['preferences', 'theme', 'dark', 'light'], shortcut: ',' },
   { id: 'link-inbox', label: 'Link inbox', icon: <Inbox size={16} />, keywords: ['imap', 'email', 'autofill', 'codes'] },
   { id: 'select-all', label: 'Select all accounts', icon: <ListChecks size={16} />, keywords: ['bulk', 'edit', 'selection'], shortcut: 'A' },
-  { id: 'new-group', label: 'New group', icon: <FolderPlus size={16} />, keywords: ['folder', 'organise', 'organize', 'section'], shortcut: '⇧N' }
+  { id: 'new-group', label: 'New group', icon: <FolderPlus size={16} />, keywords: ['folder', 'organise', 'organize', 'section'], shortcut: '⇧N' },
+  { id: 'new-tag', label: 'New tag', icon: <Tag size={16} />, keywords: ['label', 'organise', 'organize'], shortcut: '⇧T' },
+  { id: 'filter', label: 'Filter accounts', icon: <ListFilter size={16} />, keywords: ['tags', 'status', 'show', 'hide'], shortcut: '⇧L' }
 ]
 
 /** ⌘K: jump to any account or run an action. Filtering and keyboard handling come from cmdk. */
-export function CommandPalette({ open, onOpenChange, accounts, selectedId, mod, onSelectAccount, onAction }: Props) {
+export function CommandPalette({ open, onOpenChange, accounts, tags, selectedId, mod, onSelectAccount, onAction }: Props) {
   const run = (fn: () => void) => () => {
     onOpenChange(false)
     fn()
@@ -45,7 +48,14 @@ export function CommandPalette({ open, onOpenChange, accounts, selectedId, mod, 
                 key={a.id}
                 className="cmdk-item"
                 value={`account ${a.id}`}
-                keywords={[a.localName, displayName(a), a.email, a.slack.profile.display_name ?? '', a.slack.profile.real_name ?? ''].filter(Boolean)}
+                keywords={[
+                  a.localName,
+                  displayName(a),
+                  a.email,
+                  a.slack.profile.display_name ?? '',
+                  a.slack.profile.real_name ?? '',
+                  ...tags.filter((t) => a.tagIds.includes(t.id)).map((t) => t.name)
+                ].filter(Boolean)}
                 onSelect={run(() => onSelectAccount(a.id))}
               >
                 <Avatar account={a} size={26} />

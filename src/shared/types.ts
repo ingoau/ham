@@ -62,6 +62,8 @@ export interface Account {
   pinned: boolean
   /** The user's own group (see AppState.groups), or null for ungrouped. */
   groupId: string | null
+  /** The user's tags on this account (see AppState.tags). An account can have any number. */
+  tagIds: string[]
   /** ISO date the session cookie expires (or expired). */
   expiresAt: string | null
   addedAt: string
@@ -97,7 +99,26 @@ export interface ViewSettings {
   line2Tpl: string
   /** Collapsed groups, keyed "<groupBy>:<group name>". */
   collapsed: Record<string, boolean>
+  /** Which accounts the list shows. */
+  filter: AccountFilter
 }
+
+/** Status buckets for the sidebar filter. */
+export type StatusFilter = 'signed-in' | 'signed-out' | 'attention' | 'adding'
+
+/** Stands in for "accounts without tags" in AccountFilter.tags. */
+export const NO_TAGS = 'none'
+
+export interface AccountFilter {
+  /** Tag ids (or NO_TAGS). Empty: any tags. */
+  tags: string[]
+  /** With several tags: an account needs any of them, or all of them. */
+  tagMode: 'any' | 'all'
+  /** Empty: any status. */
+  status: StatusFilter[]
+}
+
+export const EMPTY_FILTER: AccountFilter = { tags: [], tagMode: 'any', status: [] }
 
 export const DEFAULT_VIEW: ViewSettings = {
   sortBy: 'line1',
@@ -108,7 +129,8 @@ export const DEFAULT_VIEW: ViewSettings = {
   line1Tpl: '{{ account.hca.first }} {{ account.hca.last }}',
   line2: 'email',
   line2Tpl: '{{ account.email }}',
-  collapsed: {}
+  collapsed: {},
+  filter: EMPTY_FILTER
 }
 
 export interface InboxStatus {
@@ -124,10 +146,22 @@ export interface AccountGroup {
   name: string
 }
 
+export const TAG_COLORS = ['red', 'orange', 'yellow', 'green', 'teal', 'blue', 'purple', 'pink', 'gray'] as const
+export type TagColor = (typeof TAG_COLORS)[number]
+
+/** A label the user made. Unlike groups, an account can have several. */
+export interface AccountTag {
+  id: string
+  name: string
+  color: TagColor
+}
+
 export interface AppState {
   accounts: Account[]
   /** The user's groups, in display order. */
   groups: AccountGroup[]
+  /** The user's tags, in display order. */
+  tags: AccountTag[]
   info: AppInfo
   update: UpdateInfo | null
   theme: Theme
@@ -210,6 +244,8 @@ export type MenuCommand =
   | { type: 'toggle-pin' }
   | { type: 'move'; direction: 'up' | 'down' }
   | { type: 'new-group' }
+  | { type: 'new-tag' }
+  | { type: 'filter' }
 
 export type HamEvent =
   | { type: 'state'; state: AppState }

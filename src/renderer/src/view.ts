@@ -1,7 +1,7 @@
 // Turns accounts + view settings into the sidebar's rows: what each row says,
 // the sort order, and grouping. Template values are rendered separately (in
 // the sandbox) and passed in by account id.
-import { isPending, type Account, type AccountGroup, type LineKind, type ViewSettings } from '@shared/types'
+import { isPending, NO_TAGS, type Account, type AccountFilter, type AccountGroup, type LineKind, type StatusFilter, type ViewSettings } from '@shared/types'
 import { accountName, bestName, displayName } from './util'
 
 export const ATTEMPT_MS = 15 * 60 * 1000
@@ -105,6 +105,34 @@ const GROUP_ORDER: Record<string, number> = {
   'Not on Slack': 1
 }
 
+export function statusBucket(a: Account): StatusFilter {
+  if (a.status === 'signed-in') return 'signed-in'
+  if (a.status === 'signed-out') return 'signed-out'
+  if (a.status === 'failed' || a.status === 'stuck' || a.status === 'needs2fa') return 'attention'
+  return 'adding'
+}
+
+export const STATUS_FILTERS: [StatusFilter, string][] = [
+  ['signed-in', 'Signed in'],
+  ['signed-out', 'Signed out'],
+  ['attention', 'Needs attention'],
+  ['adding', 'Adding']
+]
+
+export const filterActive = (f: AccountFilter) => f.tags.length > 0 || f.status.length > 0
+
+/** Whether an account passes the sidebar filter. Tags that no longer exist are ignored. */
+export function matchesFilter(a: Account, f: AccountFilter, knownTags?: Set<string>): boolean {
+  if (f.status.length && !f.status.includes(statusBucket(a))) return false
+  const own = knownTags ? a.tagIds.filter((t) => knownTags.has(t)) : a.tagIds
+  const wanted = f.tags.filter((t) => t !== NO_TAGS && (!knownTags || knownTags.has(t)))
+  const untagged = f.tags.includes(NO_TAGS)
+  if (!wanted.length && !untagged) return true
+  if (untagged && own.length === 0) return true
+  if (!wanted.length) return false
+  return f.tagMode === 'all' ? wanted.every((t) => own.includes(t)) : wanted.some((t) => own.includes(t))
+}
+
 export interface RowModel {
   account: Account
   title: string
@@ -134,8 +162,12 @@ export function buildView(
   tv: TemplateValues,
   inboxOn: boolean,
   now: number,
-  userGroups: AccountGroup[] = []
+  userGroups: AccountGroup[] = [],
+  knownTags?: Set<string>
 ) {
+  const filtering = filterActive(view.filter)
+  const total = accounts.length
+  if (filtering) accounts = accounts.filter((a) => matchesFilter(a, view.filter, knownTags))
   const titleOf = (a: Account) => (a.fresh && isPending(a.status) ? a.email : lineValue(a, view.line1, tv.line1.get(a.id)))
   const subOf = (a: Account) => {
     if (a.status !== 'signed-in' && a.status !== 'signed-out') return statusText(a, inboxOn, now)
@@ -174,10 +206,7 @@ export function buildView(
   const groupOf = (a: Account): string => {
     switch (view.groupBy) {
       case 'status':
-        if (a.status === 'signed-in') return 'Signed in'
-        if (a.status === 'signed-out') return 'Signed out'
-        if (a.status === 'failed' || a.status === 'stuck' || a.status === 'needs2fa') return 'Needs attention'
-        return 'Adding'
+        return STATUS_FILTERS.find(([k]) => k === statusBucket(a))![1]
       case 'domain':
         return a.email.split('@')[1] ?? ''
       case 'slack':
@@ -230,7 +259,18 @@ export function buildView(
   if (pinned.length) groups.unshift({ name: 'Pinned', key: 'pinned', open: !view.collapsed['pinned'], rows: pinned.map(row), pinned: true })
   // Visible order for shift-click ranges: skips collapsed groups.
   const order = groups.flatMap((g) => (g.open ? g.rows.map((r) => r.account.id) : []))
-  return { groups, order, showSub: view.line2 !== 'none', draggable: view.groupBy === 'none' }
+  // Every account the filter lets through, collapsed or not (for Select All).
+  const visible = groups.flatMap((g) => g.rows.map((r) => r.account.id))
+  return {
+    groups,
+    order,
+    visible,
+    total,
+    filtering,
+    showSub: view.line2 !== 'none',
+    // A manual order can't be saved from a filtered list (hidden accounts have places too).
+    draggable: view.groupBy === 'none' && !filtering
+  }
 }
 
 export function sortDirLabel(view: ViewSettings): string {

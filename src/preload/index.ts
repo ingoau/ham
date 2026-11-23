@@ -21,7 +21,14 @@ const api: HamApi = {
     setLocalName: (id, name) => call('accounts.setLocalName', id, name),
     setPinned: (ids, pinned) => call('accounts.setPinned', ids, pinned),
     reorder: (ids) => call('accounts.reorder', ids),
-    setGroup: (ids, groupId) => call('accounts.setGroup', ids, groupId)
+    setGroup: (ids, groupId) => call('accounts.setGroup', ids, groupId),
+    setTag: (ids, tagId, on) => call('accounts.setTag', ids, tagId, on)
+  },
+  tags: {
+    create: (name, color, ids) => call('tags.create', name, color, ids),
+    update: (id, patch) => call('tags.update', id, patch),
+    remove: (id) => call('tags.remove', id),
+    reorder: (ids) => call('tags.reorder', ids)
   },
   groups: {
     create: (name, ids) => call('groups.create', name, ids),

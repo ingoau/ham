@@ -73,6 +73,7 @@ export function buildMenu(send: (command: MenuCommand) => void) {
         { label: 'Move Up', accelerator: 'Alt+CmdOrCtrl+Up', click: () => send({ type: 'move', direction: 'up' }) },
         { label: 'Move Down', accelerator: 'Alt+CmdOrCtrl+Down', click: () => send({ type: 'move', direction: 'down' }) },
         { label: 'New Group…', accelerator: 'CmdOrCtrl+Shift+N', click: () => send({ type: 'new-group' }) },
+        { label: 'New Tag…', accelerator: 'CmdOrCtrl+Shift+T', click: () => send({ type: 'new-tag' }) },
         { type: 'separator' },
         ...accountSwitches,
         { type: 'separator' },
@@ -82,6 +83,8 @@ export function buildMenu(send: (command: MenuCommand) => void) {
     {
       label: 'View',
       submenu: [
+        { label: 'Filter Accounts…', accelerator: 'CmdOrCtrl+Shift+L', click: () => send({ type: 'filter' }) },
+        { type: 'separator' },
         ...(app.isPackaged ? [] : [{ role: 'toggleDevTools' as const }, { type: 'separator' as const }]),
         { role: 'resetZoom' },
         { role: 'zoomIn' },

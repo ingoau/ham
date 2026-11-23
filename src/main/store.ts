@@ -6,7 +6,7 @@ import { app } from 'electron'
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { migrateTemplate } from '@shared/fields'
-import { DEFAULT_VIEW, type Account, type AccountGroup, type Theme, type ViewSettings } from '@shared/types'
+import { DEFAULT_VIEW, EMPTY_FILTER, NO_TAGS, TAG_COLORS, type Account, type AccountGroup, type AccountTag, type Theme, type ViewSettings } from '@shared/types'
 
 export interface StoredAccount extends Account {
   /** Electron session partition holding this account's cookies. */
@@ -37,6 +37,7 @@ interface StoreFile {
   version: 3
   accounts: StoredAccount[]
   groups: AccountGroup[]
+  tags: AccountTag[]
   window?: WindowState
   dismissedUpdate?: string
   theme: Theme
@@ -52,7 +53,7 @@ const EMPTY_PENDING = null
 /** Bring an older store up to v3 (v2: pending accounts, v3: best-name first line) and fill in newer fields. */
 function migrate(raw: Record<string, unknown>): StoreFile {
   const version = typeof raw.version === 'number' ? raw.version : 1
-  const view = { ...DEFAULT_VIEW, ...((raw.view as Partial<ViewSettings>) ?? {}) }
+  const view = withDefaults((raw.view as Partial<ViewSettings>) ?? {})
   // The first line's default moved from the Hack Club name to the best name.
   if (version < 3 && view.line1 === 'hca') view.line1 = 'best'
   const accounts = (Array.isArray(raw.accounts) ? raw.accounts : []) as Partial<StoredAccount>[]
@@ -70,6 +71,7 @@ function migrate(raw: Record<string, unknown>): StoreFile {
       fresh: a.fresh ?? false,
       pinned: a.pinned ?? false,
       groupId: a.groupId ?? null,
+      tagIds: Array.isArray(a.tagIds) ? a.tagIds.filter((t) => typeof t === 'string') : [],
       expiresAt: a.expiresAt ?? null,
       addedAt: a.addedAt ?? new Date().toISOString(),
       pending: a.pending ?? EMPTY_PENDING,
@@ -78,6 +80,11 @@ function migrate(raw: Record<string, unknown>): StoreFile {
       attemptPath: a.attemptPath ?? null
     })),
     groups: Array.isArray(raw.groups) ? (raw.groups as AccountGroup[]).filter((g) => g && typeof g.id === 'string') : [],
+    tags: Array.isArray(raw.tags)
+      ? (raw.tags as AccountTag[])
+          .filter((t) => t && typeof t.id === 'string')
+          .map((t) => ({ id: t.id, name: String(t.name ?? ''), color: TAG_COLORS.includes(t.color) ? t.color : 'gray' }))
+      : [],
     window: raw.window as WindowState | undefined,
     dismissedUpdate: raw.dismissedUpdate as string | undefined,
     theme: (raw.theme as Theme) ?? 'system',
@@ -94,6 +101,20 @@ function migrateView(view: ViewSettings): ViewSettings {
     groupTpl: migrateTemplate(view.groupTpl),
     line1Tpl: migrateTemplate(view.line1Tpl),
     line2Tpl: migrateTemplate(view.line2Tpl)
+  }
+}
+
+/** Fill in view settings that older versions (or a bad caller) left out. */
+export function withDefaults(view: Partial<ViewSettings>): ViewSettings {
+  const f = view.filter
+  return {
+    ...DEFAULT_VIEW,
+    ...view,
+    filter: {
+      tags: Array.isArray(f?.tags) ? f.tags.filter((t) => typeof t === 'string') : [],
+      tagMode: f?.tagMode === 'all' ? 'all' : 'any',
+      status: Array.isArray(f?.status) ? f.status.filter((s) => ['signed-in', 'signed-out', 'attention', 'adding'].includes(s)) : EMPTY_FILTER.status
+    }
   }
 }
 
@@ -160,6 +181,21 @@ export class Store {
     // Accounts in a group that no longer exists become ungrouped.
     const ids = new Set(groups.map((g) => g.id))
     this.data.accounts = this.data.accounts.map((a) => (a.groupId && !ids.has(a.groupId) ? { ...a, groupId: null } : a))
+    this.flush()
+  }
+
+  get tags(): AccountTag[] {
+    return this.data.tags
+  }
+  set tags(tags: AccountTag[]) {
+    this.data.tags = tags
+    // A deleted tag comes off every account and out of the filter.
+    const ids = new Set(tags.map((t) => t.id))
+    this.data.accounts = this.data.accounts.map((a) => (a.tagIds.every((t) => ids.has(t)) ? a : { ...a, tagIds: a.tagIds.filter((t) => ids.has(t)) }))
+    const f = this.data.view.filter
+    if (f.tags.some((t) => t !== NO_TAGS && !ids.has(t))) {
+      this.data.view = { ...this.data.view, filter: { ...f, tags: f.tags.filter((t) => t === NO_TAGS || ids.has(t)) } }
+    }
     this.flush()
   }
 
