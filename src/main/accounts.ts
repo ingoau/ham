@@ -200,6 +200,7 @@ export class AccountService {
       this.store.upsert({
         id,
         email,
+        localName: '',
         firstName: '',
         lastName: '',
         phone: '',
@@ -496,6 +497,15 @@ export class AccountService {
     const [session, slackId] = await Promise.all([backend.hasSlackSession(), backend.slackId()])
     if (slackId === undefined) return { ...prev, session, linked: session ? true : prev.linked }
     return { ...prev, session, linked: slackId !== null || session, id: slackId ?? undefined }
+  }
+
+  /** A name only HAM shows. Empty clears it. */
+  setLocalName(id: string, name: string) {
+    const a = this.store.find(id)
+    const clean = name.replace(/\s+/g, ' ').trim().slice(0, 60)
+    if (!a || a.localName === clean) return
+    this.store.upsert({ ...a, localName: clean })
+    this.onChange()
   }
 
   setPinned(ids: string[], pinned: boolean) {

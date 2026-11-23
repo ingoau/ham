@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import * as Popover from '@radix-ui/react-popover'
 import { Command } from 'cmdk'
 import { Check, ChevronDown, Folder, LogIn, Pin, PinOff, X } from 'lucide-react'
-import { ALL_FIELDS, FIELD_GROUPS, fieldEditable, type FieldDef } from '@shared/fields'
+import { ALL_FIELDS, FIELD_GROUPS, HCA_FIELDS, fieldEditable, type FieldDef } from '@shared/fields'
 import type { Account } from '@shared/types'
 import { bulkJobs, planBulk, type BulkPlan } from '../bulk'
 import { useTemplates } from '../templates'
@@ -73,7 +73,7 @@ function FieldPicker({ field, onPick }: { field: FieldDef; onPick(f: FieldDef): 
 
 /** The right pane while accounts are selected: who's selected, quick actions, and bulk edit. */
 export function BulkPanel({ picked, busy, onClear, onPin, onGroup, onSignInAgain, onApply }: Props) {
-  const [field, setField] = useState<FieldDef>(ALL_FIELDS[0])
+  const [field, setField] = useState<FieldDef>(HCA_FIELDS[0])
   const [tpl, setTpl] = useState('{{ current }}')
   const { targets, jobs } = useMemo(() => bulkJobs(picked, field, tpl), [picked, field, tpl])
   const results = useTemplates(jobs)

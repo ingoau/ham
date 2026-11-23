@@ -18,6 +18,11 @@ export function displayName(a: Pick<Account, 'firstName' | 'lastName' | 'email'>
   return `${a.firstName} ${a.lastName}`.trim() || a.email
 }
 
+/** The local name if there is one, otherwise the Hack Club name. */
+export function accountName(a: Pick<Account, 'localName' | 'firstName' | 'lastName' | 'email'>): string {
+  return a.localName.trim() || displayName(a)
+}
+
 export function formatDate(iso: string | null): string {
   if (!iso) return 'Unknown'
   const d = new Date(iso)

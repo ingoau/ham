@@ -48,7 +48,7 @@ interface StoreFile {
 
 const EMPTY_PENDING = null
 
-/** Bring a v1 store (before pending accounts) up to v2. */
+/** Bring a v1 store (before pending accounts) up to v2, and fill in newer fields. */
 function migrate(raw: Record<string, unknown>): StoreFile {
   const accounts = (Array.isArray(raw.accounts) ? raw.accounts : []) as Partial<StoredAccount>[]
   return {
@@ -56,6 +56,7 @@ function migrate(raw: Record<string, unknown>): StoreFile {
     accounts: accounts.map((a) => ({
       id: a.id!,
       email: a.email!,
+      localName: a.localName ?? '',
       firstName: a.firstName ?? '',
       lastName: a.lastName ?? '',
       phone: a.phone ?? '',

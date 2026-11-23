@@ -24,6 +24,7 @@ import { AddAccountsDialog, type AddMode } from './components/AddAccountsDialog'
 import { Avatar } from './components/Avatar'
 import { BulkPanel } from './components/BulkPanel'
 import { GroupNameDialog } from './components/GroupNameDialog'
+import { LocalNameCard } from './components/LocalNameCard'
 import { useLatched } from './latch'
 import { CommandPalette, type PaletteAction } from './components/CommandPalette'
 import { DashboardPane } from './components/DashboardPane'
@@ -41,6 +42,7 @@ type Sheet =
   | { kind: 'settings' }
   | { kind: 'new-group'; ids: string[] }
   | { kind: 'rename-group'; group: AccountGroup }
+  | { kind: 'local-name'; account: Account }
 
 const remembered = {
   get: (key: string) => {
@@ -362,6 +364,7 @@ export function App() {
             : []),
           { id: 'select', label: picked.has(account.id) ? 'Deselect' : 'Select' },
           { type: 'separator' },
+          { id: 'local-name', label: account.localName ? 'Edit Local Name…' : 'Set Local Name…' },
           { id: 'copy', label: 'Copy Email' },
           { type: 'separator' },
           {
@@ -374,6 +377,8 @@ export function App() {
     switch (choice) {
       case 'open':
         return select(account.id)
+      case 'local-name':
+        return setSheet({ kind: 'local-name', account })
       case 'dashboard':
         select(account.id)
         return setTab('web')
@@ -493,6 +498,12 @@ export function App() {
         break
       }
       const { account, value } = items[i]
+      if (field.local) {
+        await window.ham.accounts.setLocalName(account.id, value)
+        previous.push({ account, value: fieldValue(account, field) })
+        setProgress((p) => ({ label, done: i + 1, total: items.length, cancelling: p?.cancelling }))
+        continue
+      }
       const latest = accounts.find((a) => a.id === account.id) ?? account
       const input = { firstName: latest.firstName, lastName: latest.lastName, phone: latest.phone }
       if (field.key === 'first') input.firstName = value
@@ -758,6 +769,7 @@ export function App() {
 
                   <Tabs.Content value="profile" className="tab-panel">
                     <ProfileForm ref={formRef} account={selected} onSaved={onSaved} />
+                    <LocalNameCard account={selected} />
                     <SessionCard account={selected} onSignOut={() => setConfirmSignOut(selected)} />
                   </Tabs.Content>
                   <Tabs.Content value="web" className="tab-panel grow">
@@ -827,6 +839,24 @@ export function App() {
           onSubmit={(name) => {
             setSheet(null)
             void window.ham.groups.rename(shownSheet.group.id, name)
+          }}
+        />
+      )}
+      {shownSheet?.kind === 'local-name' && (
+        <GroupNameDialog
+          key={sheetLatch.n}
+          open={sheetLatch.open}
+          title="Local name"
+          lead="Only kept in HAM. Leave it empty to clear it."
+          initial={shownSheet.account.localName}
+          placeholder={displayName(shownSheet.account)}
+          submitLabel="Save"
+          allowEmpty
+          count={0}
+          onClose={() => setSheet(null)}
+          onSubmit={(name) => {
+            setSheet(null)
+            void window.ham.accounts.setLocalName(shownSheet.account.id, name)
           }}
         />
       )}

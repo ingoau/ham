@@ -45,7 +45,7 @@ export function CommandPalette({ open, onOpenChange, accounts, selectedId, mod, 
                 key={a.id}
                 className="cmdk-item"
                 value={`account ${a.id}`}
-                keywords={[displayName(a), a.email, a.slack.profile.display_name ?? '', a.slack.profile.real_name ?? ''].filter(Boolean)}
+                keywords={[a.localName, displayName(a), a.email, a.slack.profile.display_name ?? '', a.slack.profile.real_name ?? ''].filter(Boolean)}
                 onSelect={run(() => onSelectAccount(a.id))}
               >
                 <Avatar account={a} size={26} />

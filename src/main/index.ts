@@ -101,6 +101,7 @@ function seedIfRequested() {
     store.upsert({
       id: `demo-${i + 1}`,
       email: s.email,
+      localName: '',
       ...s.profile,
       status: s.signedIn ? 'signed-in' : 'signed-out',
       fresh: false,
@@ -222,6 +223,7 @@ function registerIpc() {
         }
       })
     },
+    'accounts.setLocalName': (id: string, name: string) => accounts.setLocalName(String(id), typeof name === 'string' ? name : ''),
     'accounts.setPinned': (ids: string[], pinned: boolean) => accounts.setPinned(Array.isArray(ids) ? ids : [], pinned === true),
     'accounts.reorder': (ids: string[]) => accounts.reorder(Array.isArray(ids) ? ids.map(String) : []),
     'accounts.setGroup': (ids: string[], groupId: string | null) =>

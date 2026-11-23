@@ -14,6 +14,7 @@ export function contextFor(a: Account, index: number, total: number, current: st
 
 /** Why an account can't take this field, or null. */
 export function skipReason(a: Account, field: FieldDef): string | null {
+  if (field.local) return null
   if (a.status !== 'signed-in') return 'Not signed in'
   if (!field.hca && !a.slack.linked) return 'Not on Slack'
   return null

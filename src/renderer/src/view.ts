@@ -2,7 +2,7 @@
 // the sort order, and grouping. Template values are rendered separately (in
 // the sandbox) and passed in by account id.
 import { isPending, type Account, type AccountGroup, type LineKind, type ViewSettings } from '@shared/types'
-import { displayName } from './util'
+import { accountName, displayName } from './util'
 
 export const ATTEMPT_MS = 15 * 60 * 1000
 
@@ -68,6 +68,8 @@ export function lineValue(a: Account, kind: LineKind, tplValue: string | undefin
   switch (kind) {
     case 'email':
       return a.email
+    case 'local':
+      return accountName(a)
     case 'sfull':
       return sl.real_name || hca
     case 'sdisplay':
@@ -133,8 +135,12 @@ export function buildView(
   userGroups: AccountGroup[] = []
 ) {
   const titleOf = (a: Account) => (a.fresh && isPending(a.status) ? a.email : lineValue(a, view.line1, tv.line1.get(a.id)))
-  const subOf = (a: Account) =>
-    a.status === 'signed-in' || a.status === 'signed-out' ? lineValue(a, view.line2, tv.line2.get(a.id)) : statusText(a, inboxOn, now)
+  const subOf = (a: Account) => {
+    if (a.status !== 'signed-in' && a.status !== 'signed-out') return statusText(a, inboxOn, now)
+    const sub = lineValue(a, view.line2, tv.line2.get(a.id))
+    // A line that falls back to the same text as the first (no local name, say) shows the email instead.
+    return sub === titleOf(a) && view.line2 !== view.line1 ? a.email : sub
+  }
 
   const position = new Map(accounts.map((a, i) => [a.id, i]))
   const key = (a: Account): string | number => {

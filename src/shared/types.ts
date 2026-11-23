@@ -48,6 +48,8 @@ export interface SlackInfo {
 export interface Account {
   id: string
   email: string
+  /** A name only HAM shows (never sent to Hack Club). Empty for none. */
+  localName: string
   firstName: string
   lastName: string
   phone: string
@@ -80,7 +82,7 @@ export interface UpdateInfo {
 
 export type Theme = 'system' | 'light' | 'dark'
 
-export type LineKind = 'hca' | 'sfull' | 'sdisplay' | 'email' | 'tpl' | 'none'
+export type LineKind = 'local' | 'hca' | 'sfull' | 'sdisplay' | 'email' | 'tpl' | 'none'
 export type SortBy = 'manual' | 'line1' | 'hca' | 'sdisplay' | 'email' | 'added' | 'status'
 export type GroupBy = 'none' | 'status' | 'domain' | 'slack' | 'tpl'
 

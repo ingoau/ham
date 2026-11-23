@@ -126,7 +126,7 @@ try {
   await page.locator('.search-button').click()
   await page.locator('.cmdk-input').fill('new group')
   await page.keyboard.press('Enter')
-  await page.locator('#group-name').fill('Clubs')
+  await page.locator('#name-dialog-input').fill('Clubs')
   await page.getByRole('button', { name: 'Create with 1 account' }).click()
   await page.locator('.group-header', { hasText: 'Clubs' }).waitFor({ timeout: 5_000 })
   await page.locator('.group-header', { hasText: 'Ungrouped' }).waitFor()
@@ -134,6 +134,18 @@ try {
   if (clubs.join() !== 'Sam Rivera') throw new Error(`group has ${clubs.join()}`)
   await page.getByRole('button', { name: 'Clear selection' }).click()
   step('creates a group from the selection')
+
+  // A local name stays out of the list until a line shows it.
+  await row('Sam Rivera').locator('.row-main').click()
+  await page.locator('#local-name').fill('Sam main')
+  await page.keyboard.press('Enter')
+  await page.waitForTimeout(300)
+  if ((await names()).includes('Sam main')) throw new Error('local name replaced the list name')
+  await page.getByRole('button', { name: 'View options' }).click()
+  await page.locator('#view-line1').selectOption('local')
+  await page.keyboard.press('Escape')
+  await row('Sam main').waitFor({ timeout: 5_000 })
+  step('sets a local name and shows it as the first line')
 
   // View options: group by status, template first line.
   await page.getByRole('button', { name: 'View options' }).click()

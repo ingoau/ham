@@ -33,6 +33,8 @@ export interface HamApi {
     refresh(accountId: string): Promise<RefreshResult>
     save(accountId: string, profile: ProfileInput): Promise<SaveResult>
     launchSlack(accountId: string): Promise<void>
+    /** Set the name only HAM shows; empty clears it. */
+    setLocalName(accountId: string, name: string): Promise<void>
     setPinned(accountIds: string[], pinned: boolean): Promise<void>
     /** Save the manual order: every account id, top to bottom. */
     reorder(accountIds: string[]): Promise<void>
@@ -102,6 +104,7 @@ export type InvokeMethod =
   | 'accounts.refresh'
   | 'accounts.save'
   | 'accounts.launchSlack'
+  | 'accounts.setLocalName'
   | 'accounts.setPinned'
   | 'accounts.reorder'
   | 'accounts.setGroup'

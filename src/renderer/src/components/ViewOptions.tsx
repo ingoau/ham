@@ -23,6 +23,7 @@ const GROUPS: [GroupBy, string][] = [
   ['tpl', 'Template…']
 ]
 const LINES: [LineKind, string][] = [
+  ['local', 'Local name'],
   ['hca', 'Hack Club name'],
   ['sfull', 'Slack full name'],
   ['sdisplay', 'Slack display name'],

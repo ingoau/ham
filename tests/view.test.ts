@@ -9,6 +9,7 @@ function acct(p: Partial<Account>): Account {
   return {
     id: `a${n}`,
     email: `user${n}@example.com`,
+    localName: '',
     firstName: 'Fiona',
     lastName: `Hack${n}`,
     phone: '',
@@ -86,6 +87,18 @@ describe('buildView', () => {
     // Automatic grouping hides your groups.
     const byStatus = buildView([a, b], { ...DEFAULT_VIEW, groupBy: 'status' }, noTpl, false, NOW, groups)
     expect(byStatus.groups.map((g) => g.name)).toEqual(['Signed in'])
+  })
+  it('only shows local names when a line is set to them', () => {
+    const a = acct({ firstName: 'Zed', localName: 'Main' })
+    const b = acct({ firstName: 'Amy' })
+    const plain = buildView([a, b], DEFAULT_VIEW, noTpl, false, NOW)
+    expect(plain.groups[0].rows.map((r) => r.title)).toEqual([`Amy Hack${b.id.slice(1)}`, `Zed Hack${a.id.slice(1)}`])
+    const local = buildView([a, b], { ...DEFAULT_VIEW, line1: 'local', line2: 'hca' }, noTpl, false, NOW)
+    // Falls back to the Hack Club name, and sorts by what's shown.
+    expect(local.groups[0].rows.map((r) => [r.title, r.sub])).toEqual([
+      [`Amy Hack${b.id.slice(1)}`, b.email],
+      ['Main', `Zed Hack${a.id.slice(1)}`]
+    ])
   })
   it('labels sort directions', () => {
     expect(sortDirLabel({ ...DEFAULT_VIEW, sortBy: 'added', sortDir: 'desc' })).toBe('Newest first')
