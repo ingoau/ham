@@ -49,6 +49,8 @@ export interface AuthBackend {
   resumeAttempt(path: string): Promise<boolean>
   /** Whether the partition holds Slack's session cookie (`d` on .slack.com). */
   hasSlackSession(): Promise<boolean>
+  /** The account's Hack Club Slack ID from HCA (null: none linked; undefined: couldn't tell). */
+  slackId(): Promise<string | null | undefined>
 }
 
 export type BackendFactory = (partition: string) => AuthBackend

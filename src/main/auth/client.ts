@@ -5,7 +5,7 @@ import type { ProfileInput } from '@shared/types'
 import { request, NetworkError } from '../http'
 import type { AuthBackend, ProfileOutcome, SaveOutcome, StartOutcome, VerifyOutcome } from './backend'
 import { AUTH_ORIGIN, classifyLoginRedirect, isSignedOutRedirect, normalizeBackupCode, normalizeCode, type RawResponse } from './flow'
-import { parseCsrf, parseErrors, parseProfile } from './pages'
+import { parseCsrf, parseErrors, parseProfile, parseSlackId } from './pages'
 
 const RATE_LIMITED = 429
 
@@ -249,6 +249,16 @@ export class AuthClient implements AuthBackend {
   async hasSlackSession(): Promise<boolean> {
     const cookies = await this.ses.cookies.get({ domain: 'slack.com', name: 'd' })
     return cookies.some((c) => !c.expirationDate || c.expirationDate * 1000 > Date.now())
+  }
+
+  async slackId(): Promise<string | null | undefined> {
+    try {
+      const res = await this.get('/slack-id')
+      if (res.status !== 200) return undefined
+      return parseSlackId(res.body)
+    } catch {
+      return undefined
+    }
   }
 
   /** The current CSRF token, fetching the home page if there isn't one yet. */

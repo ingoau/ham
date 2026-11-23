@@ -36,8 +36,10 @@ export interface PendingInfo {
 export type SlackProfile = Record<string, string>
 
 export interface SlackInfo {
-  /** Whether the account has a Hack Club Slack user. null = not known yet. */
+  /** Whether the account has a Hack Club Slack user (from HCA's /slack-id). null = not known yet. */
   linked: boolean | null
+  /** The Slack user id, when linked. */
+  id?: string
   /** Whether this account's partition holds a Slack session cookie. */
   session: boolean
   profile: SlackProfile

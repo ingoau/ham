@@ -391,7 +391,7 @@ export class AccountService {
       this.update(id, { status: 'failed', attemptPath: null, pending: { ...freshPending(), message: "Signed in, but HAM couldn't read the account details." } })
       return
     }
-    const session = await backend.hasSlackSession()
+    const slack = await this.slackInfo(backend, a.slack)
     this.inbox?.forget(id)
     this.update(id, {
       ...read.profile,
@@ -400,7 +400,7 @@ export class AccountService {
       expiresAt: await backend.sessionExpiry(),
       pending: null,
       attemptPath: null,
-      slack: { ...a.slack, session, linked: session ? true : a.slack.linked }
+      slack
     })
     this.toast(a.fresh ? `Added ${a.email}` : `Signed in again: ${a.email}`, 'success')
   }
@@ -442,11 +442,10 @@ export class AccountService {
       return { ok: false, reason: 'signed-out' }
     }
     if (read.kind === 'unexpected') return { ok: false, reason: 'network', message: read.message }
-    const session = await backend.hasSlackSession()
     const next = this.update(id, {
       ...read.profile,
       expiresAt: (await backend.sessionExpiry()) ?? a.expiresAt,
-      slack: { ...a.slack, session, linked: session ? true : a.slack.linked }
+      slack: await this.slackInfo(backend, a.slack)
     })!
     return { ok: true, account: toPublic(next) }
   }
@@ -488,6 +487,13 @@ export class AccountService {
       case 'unexpected':
         return { ok: false, reason: 'unexpected', message: result.message }
     }
+  }
+
+  /** Slack status from HCA's /slack-id plus the partition's Slack cookie. */
+  private async slackInfo(backend: AuthBackend, prev: SlackInfo): Promise<SlackInfo> {
+    const [session, slackId] = await Promise.all([backend.hasSlackSession(), backend.slackId()])
+    if (slackId === undefined) return { ...prev, session, linked: session ? true : prev.linked }
+    return { ...prev, session, linked: slackId !== null || session, id: slackId ?? undefined }
   }
 
   setSlack(id: string, patch: Partial<SlackInfo>) {

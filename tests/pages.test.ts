@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
-import { hasCodeField, parseCsrf, parseErrors, parseProfile } from '../src/main/auth/pages'
+import { hasCodeField, parseCsrf, parseErrors, parseProfile, parseSlackId } from '../src/main/auth/pages'
 import {
   classifyLoginRedirect,
   isSignedOutRedirect,
@@ -53,6 +53,18 @@ describe('parseErrors', () => {
   it('ignores success and info banners', () => {
     expect(parseErrors(fixture('identity_edit.html'))).toEqual([])
     expect(parseErrors(fixture('identity_edit_legal.html'))).toEqual([])
+  })
+})
+
+describe('parseSlackId', () => {
+  it('reads a linked Slack ID', () => {
+    expect(parseSlackId(fixture('slack_id_linked.html'))).toBe('U0123ABCD45')
+  })
+  it('knows when none is linked', () => {
+    expect(parseSlackId(fixture('slack_id_none.html'))).toBeNull()
+  })
+  it("doesn't guess on other pages", () => {
+    expect(parseSlackId(fixture('identity_edit.html'))).toBeUndefined()
   })
 })
 

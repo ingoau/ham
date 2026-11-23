@@ -62,6 +62,19 @@ export function parseErrors(html: string): string[] {
   return [...new Set(messages.filter(Boolean))]
 }
 
+/**
+ * The Slack ID on /slack-id: a "U…" id, null when the page says none is
+ * linked, or undefined when the page isn't recognised.
+ */
+export function parseSlackId(html: string): string | null | undefined {
+  const doc = root(html)
+  const code = doc.querySelector('.slack-id-page code.slack-id, code.slack-id')
+  const id = code?.textContent.trim()
+  if (id && /^[UW][A-Z0-9]{6,}$/.test(id)) return id
+  if (/No Slack ID linked/i.test(doc.textContent)) return null
+  return undefined
+}
+
 /** Whether a page contains a form field named `code` (the login code pages). */
 export function hasCodeField(html: string): boolean {
   return root(html).querySelector('input[name="code"]') !== null

@@ -173,6 +173,13 @@ export class MockBackend implements AuthBackend {
     return loadDb().slack?.[this.partition] === true
   }
 
+  async slackId(): Promise<string | null | undefined> {
+    const db = loadDb()
+    const email = db.sessions[this.partition]?.email ?? ''
+    // Demo: the Fiona accounts and anything with "slack" in it are on Slack.
+    return db.slack?.[this.partition] || /fiona|slack/.test(email) ? `U0DEMO${email.length}` : null
+  }
+
   /** Demo only: pretend the Slack popup signed in. */
   static markSlackSession(partition: string) {
     const db = loadDb()
