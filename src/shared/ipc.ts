@@ -36,6 +36,17 @@ export interface HamApi {
     setPinned(accountIds: string[], pinned: boolean): Promise<void>
     /** Save the manual order: every account id, top to bottom. */
     reorder(accountIds: string[]): Promise<void>
+    /** Move accounts into a group, or out of one with null. Also unpins them. */
+    setGroup(accountIds: string[], groupId: string | null): Promise<void>
+  }
+
+  groups: {
+    /** Make a group (optionally moving accounts into it); resolves with its id. */
+    create(name: string, accountIds: string[]): Promise<string | null>
+    rename(groupId: string, name: string): Promise<void>
+    /** Delete a group; its accounts become ungrouped. */
+    remove(groupId: string): Promise<void>
+    reorder(groupIds: string[]): Promise<void>
   }
 
   ui: {
@@ -93,6 +104,11 @@ export type InvokeMethod =
   | 'accounts.launchSlack'
   | 'accounts.setPinned'
   | 'accounts.reorder'
+  | 'accounts.setGroup'
+  | 'groups.create'
+  | 'groups.rename'
+  | 'groups.remove'
+  | 'groups.reorder'
   | 'ui.contextMenu'
   | 'copyText'
   | 'settings.setTheme'

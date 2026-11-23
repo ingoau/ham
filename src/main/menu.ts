@@ -72,6 +72,7 @@ export function buildMenu(send: (command: MenuCommand) => void) {
         { label: 'Pin / Unpin', accelerator: 'CmdOrCtrl+Shift+P', click: () => send({ type: 'toggle-pin' }) },
         { label: 'Move Up', accelerator: 'Alt+CmdOrCtrl+Up', click: () => send({ type: 'move', direction: 'up' }) },
         { label: 'Move Down', accelerator: 'Alt+CmdOrCtrl+Down', click: () => send({ type: 'move', direction: 'down' }) },
+        { label: 'New Group…', accelerator: 'CmdOrCtrl+Shift+N', click: () => send({ type: 'new-group' }) },
         { type: 'separator' },
         ...accountSwitches,
         { type: 'separator' },

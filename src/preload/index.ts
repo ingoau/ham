@@ -19,7 +19,14 @@ const api: HamApi = {
     save: (id, profile) => call('accounts.save', id, profile),
     launchSlack: (id) => call('accounts.launchSlack', id),
     setPinned: (ids, pinned) => call('accounts.setPinned', ids, pinned),
-    reorder: (ids) => call('accounts.reorder', ids)
+    reorder: (ids) => call('accounts.reorder', ids),
+    setGroup: (ids, groupId) => call('accounts.setGroup', ids, groupId)
+  },
+  groups: {
+    create: (name, ids) => call('groups.create', name, ids),
+    rename: (id, name) => call('groups.rename', id, name),
+    remove: (id) => call('groups.remove', id),
+    reorder: (ids) => call('groups.reorder', ids)
   },
   ui: {
     contextMenu: (items) => call('ui.contextMenu', items)

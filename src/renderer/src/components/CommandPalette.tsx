@@ -1,11 +1,11 @@
 import { Command } from 'cmdk'
-import { ClipboardList, Inbox, ListChecks, Mail, Plus, Settings } from 'lucide-react'
+import { ClipboardList, FolderPlus, Inbox, ListChecks, Mail, Plus, Settings } from 'lucide-react'
 import type { ReactNode } from 'react'
 import type { Account } from '@shared/types'
 import { displayName } from '../util'
 import { Avatar } from './Avatar'
 
-export type PaletteAction = 'add' | 'paste' | 'inbox' | 'settings' | 'link-inbox' | 'select-all'
+export type PaletteAction = 'add' | 'paste' | 'inbox' | 'settings' | 'link-inbox' | 'select-all' | 'new-group'
 
 interface Props {
   open: boolean
@@ -23,7 +23,8 @@ const ACTIONS: { id: PaletteAction; label: string; icon: ReactNode; keywords: st
   { id: 'inbox', label: 'Find accounts in my inbox', icon: <Mail size={16} />, keywords: ['import', 'imap', 'search', 'add'] },
   { id: 'settings', label: 'Open Settings', icon: <Settings size={16} />, keywords: ['preferences', 'theme', 'dark', 'light'], shortcut: ',' },
   { id: 'link-inbox', label: 'Link inbox', icon: <Inbox size={16} />, keywords: ['imap', 'email', 'autofill', 'codes'] },
-  { id: 'select-all', label: 'Select all accounts', icon: <ListChecks size={16} />, keywords: ['bulk', 'edit', 'selection'], shortcut: 'A' }
+  { id: 'select-all', label: 'Select all accounts', icon: <ListChecks size={16} />, keywords: ['bulk', 'edit', 'selection'], shortcut: 'A' },
+  { id: 'new-group', label: 'New group', icon: <FolderPlus size={16} />, keywords: ['folder', 'organise', 'organize', 'section'], shortcut: '⇧N' }
 ]
 
 /** ⌘K: jump to any account or run an action. Filtering and keyboard handling come from cmdk. */

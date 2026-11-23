@@ -107,6 +107,20 @@ try {
   await page.getByRole('button', { name: 'Clear selection' }).click()
   step('selects all with ⌘A, clears with Esc, pins from the bulk pane')
 
+  // Make a group from a selection via the command palette.
+  await row('Sam Rivera').locator('.row-check').click()
+  await page.locator('.search-button').click()
+  await page.locator('.cmdk-input').fill('new group')
+  await page.keyboard.press('Enter')
+  await page.locator('#group-name').fill('Clubs')
+  await page.getByRole('button', { name: 'Create with 1 account' }).click()
+  await page.locator('.group-header', { hasText: 'Clubs' }).waitFor({ timeout: 5_000 })
+  await page.locator('.group-header', { hasText: 'Ungrouped' }).waitFor()
+  const clubs = await page.locator('.account-group', { has: page.locator('.group-header', { hasText: 'Clubs' }) }).locator('.account-row .name').allTextContents()
+  if (clubs.join() !== 'Sam Rivera') throw new Error(`group has ${clubs.join()}`)
+  await page.getByRole('button', { name: 'Clear selection' }).click()
+  step('creates a group from the selection')
+
   // View options: group by status, template first line.
   await page.getByRole('button', { name: 'View options' }).click()
   await page.locator('#view-group').selectOption('status')

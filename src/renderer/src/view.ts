@@ -1,7 +1,7 @@
 // Turns accounts + view settings into the sidebar's rows: what each row says,
 // the sort order, and grouping. Template values are rendered separately (in
 // the sandbox) and passed in by account id.
-import { isPending, type Account, type LineKind, type ViewSettings } from '@shared/types'
+import { isPending, type Account, type AccountGroup, type LineKind, type ViewSettings } from '@shared/types'
 import { displayName } from './util'
 
 export const ATTEMPT_MS = 15 * 60 * 1000
@@ -114,6 +114,8 @@ export interface GroupModel {
   rows: RowModel[]
   /** The Pinned section, always first. */
   pinned?: boolean
+  /** With your own groups: the group's id, or null for the ungrouped section. */
+  groupId?: string | null
 }
 
 export interface TemplateValues {
@@ -122,7 +124,14 @@ export interface TemplateValues {
   group: Map<string, string>
 }
 
-export function buildView(accounts: Account[], view: ViewSettings, tv: TemplateValues, inboxOn: boolean, now: number) {
+export function buildView(
+  accounts: Account[],
+  view: ViewSettings,
+  tv: TemplateValues,
+  inboxOn: boolean,
+  now: number,
+  userGroups: AccountGroup[] = []
+) {
   const titleOf = (a: Account) => (a.fresh && isPending(a.status) ? a.email : lineValue(a, view.line1, tv.line1.get(a.id)))
   const subOf = (a: Account) =>
     a.status === 'signed-in' || a.status === 'signed-out' ? lineValue(a, view.line2, tv.line2.get(a.id)) : statusText(a, inboxOn, now)
@@ -179,7 +188,21 @@ export function buildView(accounts: Account[], view: ViewSettings, tv: TemplateV
   const others = sorted.filter((a) => !a.pinned)
   const groups: GroupModel[] = []
   if (view.groupBy === 'none') {
-    groups.push({ name: pinned.length ? 'Accounts' : '', key: '', open: pinned.length ? !view.collapsed['accounts'] : true, rows: others.map(row) })
+    // Your own groups, in your order, then everything else.
+    for (const ug of userGroups) {
+      const gkey = `group:${ug.id}`
+      groups.push({ name: ug.name, key: gkey, open: !view.collapsed[gkey], rows: others.filter((a) => a.groupId === ug.id).map(row), groupId: ug.id })
+    }
+    const known = new Set(userGroups.map((g) => g.id))
+    const loose = others.filter((a) => !a.groupId || !known.has(a.groupId))
+    const sectioned = pinned.length > 0 || userGroups.length > 0
+    groups.push({
+      name: !sectioned ? '' : userGroups.length ? 'Ungrouped' : 'Accounts',
+      key: '',
+      open: sectioned ? !view.collapsed['accounts'] : true,
+      rows: loose.map(row),
+      groupId: null
+    })
   } else {
     const byName = new Map<string, GroupModel>()
     for (const a of others) {

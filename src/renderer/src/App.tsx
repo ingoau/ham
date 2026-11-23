@@ -7,6 +7,7 @@ import { fieldValue, type FieldDef } from '@shared/fields'
 import {
   isPending,
   type Account,
+  type AccountGroup,
   type AppState,
   type ContextMenuItem,
   type DashboardNotice,
@@ -18,21 +19,27 @@ import {
 import { contextFor, type BulkPlan } from './bulk'
 import { useTemplates } from './templates'
 import { displayName, formatDate } from './util'
-import { buildView, type TemplateValues } from './view'
+import { buildView, type GroupModel, type TemplateValues } from './view'
 import { AddAccountsDialog, type AddMode } from './components/AddAccountsDialog'
 import { Avatar } from './components/Avatar'
 import { BulkPanel } from './components/BulkPanel'
+import { GroupNameDialog } from './components/GroupNameDialog'
 import { CommandPalette, type PaletteAction } from './components/CommandPalette'
 import { DashboardPane } from './components/DashboardPane'
 import { PendingPane } from './components/PendingPane'
 import { ProfileForm, type ProfileFormHandle } from './components/ProfileForm'
 import { SessionCard } from './components/SessionCard'
 import { SettingsDialog } from './components/SettingsDialog'
-import { Sidebar, type BulkProgress } from './components/Sidebar'
+import { Sidebar, type BulkProgress, type SectionMove } from './components/Sidebar'
 import { SignOutDialog } from './components/SignOutDialog'
 
 type Tab = 'profile' | 'web'
-type Sheet = null | { kind: 'add'; mode: AddMode } | { kind: 'settings' }
+type Sheet =
+  | null
+  | { kind: 'add'; mode: AddMode }
+  | { kind: 'settings' }
+  | { kind: 'new-group'; ids: string[] }
+  | { kind: 'rename-group'; group: AccountGroup }
 
 const remembered = {
   get: (key: string) => {
@@ -127,7 +134,7 @@ export function App() {
 
   const tv = useViewTemplates(accounts, app?.view)
   const viewModel = useMemo(
-    () => (app ? buildView(accounts, app.view, tv, inboxOn, now) : { groups: [], order: [], showSub: true, draggable: false }),
+    () => (app ? buildView(accounts, app.view, tv, inboxOn, now, app.groups) : { groups: [], order: [], showSub: true, draggable: false }),
     [app, accounts, tv, inboxOn, now]
   )
 
@@ -173,19 +180,21 @@ export function App() {
     void window.ham.accounts.setPinned([...ids], pinned)
   }
 
-  /** Save a new manual order (pinned section first) and switch to manual sort. */
-  const reorder = (pinnedIds: string[], restIds: string[], pinChange: { id: string; pinned: boolean } | null) => {
-    const ids = [...pinnedIds, ...restIds]
+  /** Save a new manual order (every account, top to bottom) and switch to manual sort. */
+  const reorder = (ids: string[], moved: SectionMove | null) => {
     setApp((s) => {
       if (!s) return s
       const byId = new Map(s.accounts.map((a) => [a.id, a]))
       const ordered = ids.map((id) => byId.get(id)).filter((a): a is Account => !!a)
       const rest = s.accounts.filter((a) => !ids.includes(a.id))
-      const list = [...ordered, ...rest].map((a) => (pinChange && a.id === pinChange.id ? { ...a, pinned: pinChange.pinned } : a))
+      const list = [...ordered, ...rest].map((a) =>
+        moved?.id !== a.id ? a : moved.pinned ? { ...a, pinned: true } : { ...a, pinned: false, groupId: moved.groupId }
+      )
       const view = s.view.sortBy === 'manual' ? s.view : { ...s.view, sortBy: 'manual' as const, sortDir: 'asc' as const }
       return { ...s, accounts: list, view }
     })
-    if (pinChange) void window.ham.accounts.setPinned([pinChange.id], pinChange.pinned)
+    if (moved?.pinned) void window.ham.accounts.setPinned([moved.id], true)
+    else if (moved) void window.ham.accounts.setGroup([moved.id], moved.groupId)
     void window.ham.accounts.reorder(ids)
     if (app && app.view.sortBy !== 'manual') void window.ham.settings.setView({ ...app.view, sortBy: 'manual', sortDir: 'asc' })
   }
@@ -200,9 +209,114 @@ export function App() {
     const j = direction === 'up' ? i - 1 : i + 1
     if (j < 0 || j >= ids.length) return
     ;[ids[i], ids[j]] = [ids[j], ids[i]]
-    const pinnedIds = section.pinned ? ids : viewModel.groups.find((g) => g.pinned)?.rows.map((r) => r.account.id) ?? []
-    const restIds = section.pinned ? viewModel.groups.find((g) => !g.pinned)?.rows.map((r) => r.account.id) ?? [] : ids
-    reorder(pinnedIds, restIds, null)
+    reorder(
+      viewModel.groups.flatMap((g) => (g === section ? ids : g.rows.map((r) => r.account.id))),
+      null
+    )
+  }
+
+  const groups = app?.groups ?? []
+
+  /** Move accounts into a group (null: out of their group). Shows the group if it's collapsed or hidden. */
+  const moveToGroup = (list: Account[], groupId: string | null) => {
+    const ids = new Set(list.map((a) => a.id))
+    setApp((s) => (s ? { ...s, accounts: s.accounts.map((a) => (ids.has(a.id) ? { ...a, groupId, pinned: false } : a)) } : s))
+    void window.ham.accounts.setGroup([...ids], groupId)
+    showGroups()
+  }
+
+  /** Your groups show when grouping is set to "My groups". */
+  const showGroups = () => {
+    if (app && app.view.groupBy !== 'none') setView({ ...app.view, groupBy: 'none' })
+  }
+
+  const createGroup = async (name: string, ids: string[]) => {
+    setSheet(null)
+    await window.ham.groups.create(name, ids)
+    showGroups()
+  }
+
+  const deleteGroup = (group: AccountGroup) => {
+    const members = accounts.filter((a) => a.groupId === group.id).map((a) => a.id)
+    const at = groups.findIndex((g) => g.id === group.id)
+    void window.ham.groups.remove(group.id)
+    toast(`Deleted “${group.name}”`, {
+      action: {
+        label: 'Undo',
+        onClick: async () => {
+          const id = await window.ham.groups.create(group.name, members)
+          if (!id) return
+          const order = groups.map((g) => g.id).filter((g) => g !== group.id)
+          order.splice(at, 0, id)
+          void window.ham.groups.reorder(order)
+        }
+      }
+    })
+  }
+
+  /** The "Move to Group" items shared by account menus and the bulk pane. */
+  const groupItems = (list: Account[]): ContextMenuItem[] => [
+    ...groups.map((g) => ({ id: `group:${g.id}`, label: g.name, checked: list.every((a) => a.groupId === g.id) })),
+    ...(groups.length ? [{ type: 'separator' as const }] : []),
+    { id: 'group:new', label: 'New Group…' },
+    ...(list.some((a) => a.groupId) ? [{ id: 'group:none', label: 'Remove from Group' }] : [])
+  ]
+
+  const handleGroupChoice = (choice: string | null, list: Account[]): boolean => {
+    if (!choice?.startsWith('group:')) return false
+    const target = choice.slice('group:'.length)
+    if (target === 'new') setSheet({ kind: 'new-group', ids: list.map((a) => a.id) })
+    else moveToGroup(list, target === 'none' ? null : target)
+    return true
+  }
+
+  const showGroupPicker = async (list: Account[]) => {
+    handleGroupChoice(await window.ham.ui.contextMenu(groupItems(list)), list)
+  }
+
+  /** Right-click on a section header. */
+  const showGroupMenu = async (section: GroupModel) => {
+    const members = section.rows.map((r) => r.account)
+    const own = section.groupId ? groups.find((g) => g.id === section.groupId) : undefined
+    const at = own ? groups.indexOf(own) : -1
+    const items: ContextMenuItem[] = [
+      { id: 'toggle', label: section.open ? 'Collapse' : 'Expand' },
+      { id: 'select', label: 'Select Accounts in Group', enabled: members.length > 0 },
+      ...(own
+        ? [
+            { type: 'separator' as const },
+            { id: 'rename', label: 'Rename…' },
+            { id: 'up', label: 'Move Up', enabled: at > 0 },
+            { id: 'down', label: 'Move Down', enabled: at < groups.length - 1 },
+            { type: 'separator' as const },
+            { id: 'delete', label: 'Delete Group' }
+          ]
+        : []),
+      { type: 'separator' },
+      { id: 'new', label: 'New Group…' }
+    ]
+    const choice = await window.ham.ui.contextMenu(items)
+    if (!app) return
+    switch (choice) {
+      case 'toggle':
+        return setView({ ...app.view, collapsed: { ...app.view.collapsed, [section.key || 'accounts']: section.open } })
+      case 'select':
+        return setPicked(new Set(members.map((a) => a.id)))
+      case 'rename':
+        return own && setSheet({ kind: 'rename-group', group: own })
+      case 'up':
+      case 'down': {
+        if (!own) return
+        const ids = groups.map((g) => g.id)
+        const j = choice === 'up' ? at - 1 : at + 1
+        ;[ids[at], ids[j]] = [ids[j], ids[at]]
+        return void window.ham.groups.reorder(ids)
+      }
+      case 'delete':
+        return own && deleteGroup(own)
+      case 'new':
+        return setSheet({ kind: 'new-group', ids: [] })
+    }
   }
 
   const isEditable = (el: Element | null) =>
@@ -216,6 +330,7 @@ export function App() {
     const items: ContextMenuItem[] = many
       ? [
           { id: 'pin', label: pinLabel, accelerator: 'CmdOrCtrl+Shift+P' },
+          { label: 'Move to Group', submenu: groupItems(list) },
           ...(list.some((a) => a.status === 'signed-out') ? [{ id: 'sign-in', label: 'Sign In Again' }] : []),
           { id: 'copy', label: `Copy ${list.length} Emails` },
           { type: 'separator' },
@@ -233,6 +348,7 @@ export function App() {
           ...(account.status === 'signed-out' ? [{ id: 'sign-in', label: 'Sign In Again' }] : []),
           { type: 'separator' },
           { id: 'pin', label: pinLabel, accelerator: 'CmdOrCtrl+Shift+P' },
+          { label: 'Move to Group', submenu: groupItems(list) },
           ...(viewModel.draggable
             ? [
                 { id: 'up', label: 'Move Up', accelerator: 'Alt+CmdOrCtrl+Up' },
@@ -249,6 +365,7 @@ export function App() {
           }
         ]
     const choice = await window.ham.ui.contextMenu(items)
+    if (handleGroupChoice(choice, list)) return
     switch (choice) {
       case 'open':
         return select(account.id)
@@ -416,6 +533,8 @@ export function App() {
         return setSheet({ kind: 'settings' })
       case 'select-all':
         return setPicked(new Set(accounts.map((a) => a.id)))
+      case 'new-group':
+        return setSheet({ kind: 'new-group', ids: [...picked] })
     }
   }
 
@@ -466,6 +585,9 @@ export function App() {
       }
       case 'move':
         move(command.direction)
+        break
+      case 'new-group':
+        setSheet({ kind: 'new-group', ids: [...picked] })
         break
       case 'sign-out':
         if (selected) setConfirmSignOut(selected)
@@ -519,6 +641,7 @@ export function App() {
         onExtendTo={extendTo}
         onReorder={reorder}
         onContextMenu={(a) => void showContextMenu(a)}
+        onGroupMenu={(g) => void showGroupMenu(g)}
         onSelectAll={selectAll}
         onClearPicked={() => (setPicked(new Set()), setAnchor(null))}
         onAdd={() => setSheet({ kind: 'add', mode: 'one' })}
@@ -550,6 +673,7 @@ export function App() {
                 busy={progress !== null}
                 onClear={() => setPicked(new Set())}
                 onPin={(pinned) => setPinned(pickedAccounts, pinned)}
+                onGroup={() => void showGroupPicker(pickedAccounts)}
                 onSignInAgain={() => {
                   const ids = pickedAccounts.filter((a) => a.status === 'signed-out').map((a) => a.id)
                   void window.ham.accounts.signInAgain(ids)
@@ -674,6 +798,20 @@ export function App() {
       )}
       {sheet?.kind === 'settings' && <SettingsDialog app={app} onClose={() => setSheet(null)} />}
 
+      {sheet?.kind === 'new-group' && (
+        <GroupNameDialog initial="" count={sheet.ids.length} onClose={() => setSheet(null)} onSubmit={(name) => void createGroup(name, sheet.ids)} />
+      )}
+      {sheet?.kind === 'rename-group' && (
+        <GroupNameDialog
+          initial={sheet.group.name}
+          count={0}
+          onClose={() => setSheet(null)}
+          onSubmit={(name) => {
+            setSheet(null)
+            void window.ham.groups.rename(sheet.group.id, name)
+          }}
+        />
+      )}
       {confirmSignOut && <SignOutDialog account={confirmSignOut} onCancel={() => setConfirmSignOut(null)} onConfirm={() => remove(confirmSignOut)} />}
 
       {slackConfirm && (

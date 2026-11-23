@@ -58,6 +58,8 @@ export interface Account {
   fresh: boolean
   /** Pinned accounts sit in their own section at the top of the list. */
   pinned: boolean
+  /** The user's own group (see AppState.groups), or null for ungrouped. */
+  groupId: string | null
   /** ISO date the session cookie expires (or expired). */
   expiresAt: string | null
   addedAt: string
@@ -114,8 +116,16 @@ export interface InboxStatus {
   error: string | null
 }
 
+/** A group the user made to organise accounts. */
+export interface AccountGroup {
+  id: string
+  name: string
+}
+
 export interface AppState {
   accounts: Account[]
+  /** The user's groups, in display order. */
+  groups: AccountGroup[]
   info: AppInfo
   update: UpdateInfo | null
   theme: Theme
@@ -127,6 +137,7 @@ export interface AppState {
 export type ContextMenuItem =
   | { type: 'separator' }
   | { id: string; label: string; enabled?: boolean; checked?: boolean; accelerator?: string }
+  | { label: string; submenu: ContextMenuItem[] }
 
 export type CodeResult = { ok: true } | { ok: false; message: string }
 
@@ -186,6 +197,7 @@ export type MenuCommand =
   | { type: 'deselect-all' }
   | { type: 'toggle-pin' }
   | { type: 'move'; direction: 'up' | 'down' }
+  | { type: 'new-group' }
 
 export type HamEvent =
   | { type: 'state'; state: AppState }

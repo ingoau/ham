@@ -16,6 +16,7 @@ function acct(p: Partial<Account>): Account {
     status: 'signed-in',
     fresh: false,
     pinned: false,
+    groupId: null,
     expiresAt: null,
     addedAt: new Date(NOW - (100 - n) * 1000).toISOString(),
     pending: null,
@@ -64,6 +65,27 @@ describe('buildView', () => {
     expect(v.groups.map((g) => g.name)).toEqual(['Pinned', 'Accounts'])
     expect(v.order).toEqual([b.id, a.id, c.id])
     expect(v.draggable).toBe(true)
+  })
+  it('shows your groups in order, including empty ones, then ungrouped', () => {
+    const a = acct({ firstName: 'Zed', groupId: 'g2' })
+    const b = acct({ firstName: 'Amy' })
+    const c = acct({ firstName: 'Bob', groupId: 'gone' })
+    const d = acct({ firstName: 'Cat', groupId: 'g2', pinned: true })
+    const groups = [
+      { id: 'g1', name: 'Empty' },
+      { id: 'g2', name: 'Clubs' }
+    ]
+    const v = buildView([a, b, c, d], { ...DEFAULT_VIEW, sortBy: 'manual' }, noTpl, false, NOW, groups)
+    expect(v.groups.map((g) => [g.name, g.rows.length])).toEqual([
+      ['Pinned', 1],
+      ['Empty', 0],
+      ['Clubs', 1],
+      ['Ungrouped', 2]
+    ])
+    expect(v.order).toEqual([d.id, a.id, b.id, c.id])
+    // Automatic grouping hides your groups.
+    const byStatus = buildView([a, b], { ...DEFAULT_VIEW, groupBy: 'status' }, noTpl, false, NOW, groups)
+    expect(byStatus.groups.map((g) => g.name)).toEqual(['Signed in'])
   })
   it('labels sort directions', () => {
     expect(sortDirLabel({ ...DEFAULT_VIEW, sortBy: 'added', sortDir: 'desc' })).toBe('Newest first')

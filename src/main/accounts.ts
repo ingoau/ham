@@ -4,7 +4,7 @@
 // account has its own session partition, and the in-progress attempt is
 // persisted so a restart within the 15-minute window picks it up again.
 import { randomUUID } from 'node:crypto'
-import type { Account, CodeResult, PendingInfo, ProfileInput, RefreshResult, SaveResult, SlackInfo } from '@shared/types'
+import type { Account, AccountGroup, CodeResult, PendingInfo, ProfileInput, RefreshResult, SaveResult, SlackInfo } from '@shared/types'
 import type { AuthBackend, BackendFactory, StartOutcome, VerifyOutcome } from './auth/backend'
 import { isValidEmail } from './auth/flow'
 import { CHECK_LIMIT, LOGIN_LIMIT, LOGIN_PER_EMAIL_LIMIT, SlidingWindow } from './limits'
@@ -207,6 +207,7 @@ export class AccountService {
         status: 'queued',
         fresh: true,
         pinned: false,
+        groupId: null,
         expiresAt: null,
         // Keep the given order for accounts added together.
         addedAt: new Date(now + i).toISOString(),
@@ -507,6 +508,49 @@ export class AccountService {
 
   reorder(ids: string[]) {
     this.store.reorder(ids)
+    this.onChange()
+  }
+
+  get groups(): AccountGroup[] {
+    return this.store.groups
+  }
+
+  /** Move accounts into a group (or out, with null). Moving also unpins, so they show up there. */
+  setGroup(ids: string[], groupId: string | null) {
+    if (groupId !== null && !this.store.groups.some((g) => g.id === groupId)) return
+    for (const id of ids) {
+      const a = this.store.find(id)
+      if (a && (a.groupId !== groupId || a.pinned)) this.store.upsert({ ...a, groupId, pinned: false })
+    }
+    this.onChange()
+  }
+
+  createGroup(name: string, ids: string[]): string | null {
+    const clean = name.trim().slice(0, 60)
+    if (!clean) return null
+    const id = randomUUID()
+    this.store.groups = [...this.store.groups, { id, name: clean }]
+    if (ids.length) this.setGroup(ids, id)
+    else this.onChange()
+    return id
+  }
+
+  renameGroup(id: string, name: string) {
+    const clean = name.trim().slice(0, 60)
+    if (!clean) return
+    this.store.groups = this.store.groups.map((g) => (g.id === id ? { ...g, name: clean } : g))
+    this.onChange()
+  }
+
+  deleteGroup(id: string) {
+    this.store.groups = this.store.groups.filter((g) => g.id !== id)
+    this.onChange()
+  }
+
+  reorderGroups(ids: string[]) {
+    const byId = new Map(this.store.groups.map((g) => [g.id, g]))
+    const listed = ids.map((id) => byId.get(id)).filter((g): g is AccountGroup => !!g)
+    this.store.groups = [...listed, ...this.store.groups.filter((g) => !ids.includes(g.id))]
     this.onChange()
   }
 

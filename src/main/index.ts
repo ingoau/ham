@@ -67,6 +67,7 @@ function send(event: HamEvent) {
 function state(): AppState {
   return {
     accounts: accounts.list(),
+    groups: accounts.groups,
     info: { version: app.getVersion(), platform: process.platform, mock: MOCK },
     update: update && store.dismissedUpdate !== update.version ? update : null,
     theme: store.theme,
@@ -102,6 +103,7 @@ function seedIfRequested() {
       status: s.signedIn ? 'signed-in' : 'signed-out',
       fresh: false,
       pinned: false,
+      groupId: null,
       expiresAt: s.expiresAt,
       addedAt: new Date(now - (3 - i) * 86_400_000).toISOString(),
       pending: null,
@@ -220,21 +222,31 @@ function registerIpc() {
     },
     'accounts.setPinned': (ids: string[], pinned: boolean) => accounts.setPinned(Array.isArray(ids) ? ids : [], pinned === true),
     'accounts.reorder': (ids: string[]) => accounts.reorder(Array.isArray(ids) ? ids.map(String) : []),
+    'accounts.setGroup': (ids: string[], groupId: string | null) =>
+      accounts.setGroup(Array.isArray(ids) ? ids.map(String) : [], typeof groupId === 'string' ? groupId : null),
+    'groups.create': (name: string, ids: string[]) => accounts.createGroup(String(name ?? ''), Array.isArray(ids) ? ids.map(String) : []),
+    'groups.rename': (id: string, name: string) => accounts.renameGroup(String(id), String(name ?? '')),
+    'groups.remove': (id: string) => accounts.deleteGroup(String(id)),
+    'groups.reorder': (ids: string[]) => accounts.reorderGroups(Array.isArray(ids) ? ids.map(String) : []),
     'ui.contextMenu': (items: ContextMenuItem[]) =>
       new Promise<string | null>((resolve) => {
         if (!mainWindow || !Array.isArray(items)) return resolve(null)
         let chosen: string | null = null
-        const template: MenuItemConstructorOptions[] = items.map((item) =>
-          'id' in item
-            ? {
-                label: String(item.label),
-                enabled: item.enabled !== false,
-                ...(item.checked !== undefined ? { type: 'checkbox' as const, checked: item.checked } : {}),
-                ...(item.accelerator ? { accelerator: item.accelerator, registerAccelerator: false } : {}),
-                click: () => (chosen = item.id)
-              }
-            : { type: 'separator' as const }
-        )
+        const build = (list: ContextMenuItem[]): MenuItemConstructorOptions[] =>
+          list.slice(0, 100).map((item) =>
+            'id' in item
+              ? {
+                  label: String(item.label),
+                  enabled: item.enabled !== false,
+                  ...(item.checked !== undefined ? { type: 'checkbox' as const, checked: item.checked } : {}),
+                  ...(item.accelerator ? { accelerator: item.accelerator, registerAccelerator: false } : {}),
+                  click: () => (chosen = item.id)
+                }
+              : 'submenu' in item && Array.isArray(item.submenu)
+                ? { label: String(item.label), submenu: build(item.submenu) }
+                : { type: 'separator' as const }
+          )
+        const template = build(items)
         // The click handler runs before the menu's close callback.
         Menu.buildFromTemplate(template).popup({ window: mainWindow, callback: () => setImmediate(() => resolve(chosen)) })
       }),

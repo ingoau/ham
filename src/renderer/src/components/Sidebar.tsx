@@ -16,6 +16,9 @@ import { badgeFor, type GroupModel, type RowModel } from '../view'
 import { Avatar } from './Avatar'
 import { ViewOptions } from './ViewOptions'
 
+/** A drop into another section: pin it, or move it into a group (null: ungrouped). */
+export type SectionMove = { id: string; pinned: true } | { id: string; pinned: false; groupId: string | null }
+
 export interface BulkProgress {
   label: string
   done: number
@@ -44,9 +47,10 @@ interface Props {
   onExtendTo(id: string): void
   onSelectAll(): void
   onClearPicked(): void
-  /** New manual order for the two draggable sections, and a pin change for a cross-section drop. */
-  onReorder(pinned: string[], rest: string[], pinChange: { id: string; pinned: boolean } | null): void
+  /** New manual order (every account, top to bottom) and where a cross-section drop landed. */
+  onReorder(ids: string[], moved: SectionMove | null): void
   onContextMenu(account: Account): void
+  onGroupMenu(group: GroupModel): void
   onAdd(): void
   onOpenPalette(): void
   onOpenSettings(): void
@@ -139,23 +143,22 @@ export function Sidebar(props: Props) {
   const onDragEnd = ({ active, over }: DragEndEvent) => {
     setDragging(false)
     if (!over || active.id === over.id) return
-    const pinnedIds = groups.find((g) => g.pinned)?.rows.map((r) => r.account.id) ?? []
-    const restIds = groups.find((g) => !g.pinned)?.rows.map((r) => r.account.id) ?? []
-    const from = pinnedIds.includes(String(active.id)) ? 'pinned' : 'rest'
-    // Dropping on a section header lands at the end of that section.
+    const id = String(active.id)
     const overId = String(over.id)
-    const to = overId === 'section:pinned' || pinnedIds.includes(overId) ? 'pinned' : 'rest'
-    const lists = { pinned: [...pinnedIds], rest: [...restIds] }
+    const lists = groups.map((g) => g.rows.map((r) => r.account.id))
+    const from = lists.findIndex((l) => l.includes(id))
+    // Dropping on a section header lands at the end of that section.
+    const to = groups.findIndex((g, i) => sectionId(g) === overId || lists[i].includes(overId))
+    if (from === -1 || to === -1) return
     if (from === to) {
-      const list = lists[from]
-      lists[from] = arrayMove(list, list.indexOf(String(active.id)), Math.max(0, list.indexOf(overId)))
-      props.onReorder(lists.pinned, lists.rest, null)
-    } else {
-      lists[from] = lists[from].filter((x) => x !== String(active.id))
-      const at = lists[to].indexOf(overId)
-      lists[to].splice(at === -1 ? lists[to].length : at, 0, String(active.id))
-      props.onReorder(lists.pinned, lists.rest, { id: String(active.id), pinned: to === 'pinned' })
+      lists[from] = arrayMove(lists[from], lists[from].indexOf(id), Math.max(0, lists[from].indexOf(overId)))
+      return props.onReorder(lists.flat(), null)
     }
+    lists[from] = lists[from].filter((x) => x !== id)
+    const at = lists[to].indexOf(overId)
+    lists[to].splice(at === -1 ? lists[to].length : at, 0, id)
+    const target = groups[to]
+    props.onReorder(lists.flat(), target.pinned ? { id, pinned: true } : { id, pinned: false, groupId: target.groupId ?? null })
   }
 
   return (
@@ -207,19 +210,24 @@ export function Sidebar(props: Props) {
           onDragEnd={onDragEnd}
         >
           {groups.map((g) => {
-            // An empty section is only a drop target while dragging.
-            if (g.rows.length === 0 && !dragging) return null
+            // An empty section is only a drop target while dragging (your own groups always show).
+            if (g.rows.length === 0 && !dragging && !g.groupId) return null
             const ids = g.rows.map((r) => r.account.id)
             return (
               <div key={g.key || 'all'} role="group" aria-label={g.name || undefined} className="account-group">
                 {g.name !== '' && (
                   <SectionHeader
-                    id={g.pinned ? 'section:pinned' : g.key === '' ? 'section:rest' : `group:${g.key}`}
+                    id={sectionId(g)}
                     droppable={draggable}
                     group={g}
+                    onContextMenu={(e) => {
+                      e.preventDefault()
+                      props.onGroupMenu(g)
+                    }}
                     onToggle={() => props.onView({ ...view, collapsed: { ...view.collapsed, [g.key || 'accounts']: g.open } })}
                   />
                 )}
+                {g.open && g.rows.length === 0 && !dragging && <p className="group-empty">Drag accounts here</p>}
                 {g.open && (
                   <SortableContext items={ids} strategy={verticalListSortingStrategy} disabled={!draggable}>
                     {g.rows.map((r) => (
@@ -269,11 +277,31 @@ export function Sidebar(props: Props) {
   )
 }
 
-function SectionHeader({ id, droppable, group, onToggle }: { id: string; droppable: boolean; group: GroupModel; onToggle(): void }) {
+const sectionId = (g: GroupModel) => `section:${g.key || 'rest'}`
+
+function SectionHeader({
+  id,
+  droppable,
+  group,
+  onToggle,
+  onContextMenu
+}: {
+  id: string
+  droppable: boolean
+  group: GroupModel
+  onToggle(): void
+  onContextMenu(e: MouseEvent): void
+}) {
   // Section headers are drop targets (the end of that section) for cross-section drags.
   const { setNodeRef, isOver } = useSortable({ id, disabled: { draggable: true, droppable: !droppable } })
   return (
-    <button ref={setNodeRef} className={`group-header${isOver ? ' drop-target' : ''}`} aria-expanded={group.open} onClick={onToggle}>
+    <button
+      ref={setNodeRef}
+      className={`group-header${isOver ? ' drop-target' : ''}`}
+      aria-expanded={group.open}
+      onClick={onToggle}
+      onContextMenu={onContextMenu}
+    >
       <ChevronDown size={14} aria-hidden style={{ transform: group.open ? undefined : 'rotate(-90deg)' }} />
       {group.pinned && <Pin size={11} aria-hidden />}
       <span className="group-name">{group.name}</span>

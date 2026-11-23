@@ -16,7 +16,7 @@ const SORTS: [SortBy, string][] = [
   ['status', 'Needs attention']
 ]
 const GROUPS: [GroupBy, string][] = [
-  ['none', 'Nothing'],
+  ['none', 'My groups'],
   ['status', 'Status'],
   ['domain', 'Email domain'],
   ['slack', 'On Slack'],

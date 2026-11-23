@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import * as Popover from '@radix-ui/react-popover'
 import { Command } from 'cmdk'
-import { Check, ChevronDown, LogIn, Pin, PinOff, X } from 'lucide-react'
+import { Check, ChevronDown, Folder, LogIn, Pin, PinOff, X } from 'lucide-react'
 import { ALL_FIELDS, FIELD_GROUPS, fieldEditable, type FieldDef } from '@shared/fields'
 import type { Account } from '@shared/types'
 import { bulkJobs, planBulk, type BulkPlan } from '../bulk'
@@ -15,6 +15,8 @@ interface Props {
   busy: boolean
   onClear(): void
   onPin(pinned: boolean): void
+  /** Opens the Move to Group menu. */
+  onGroup(): void
   onSignInAgain(): void
   onApply(field: FieldDef, plan: BulkPlan): void
 }
@@ -70,7 +72,7 @@ function FieldPicker({ field, onPick }: { field: FieldDef; onPick(f: FieldDef): 
 }
 
 /** The right pane while accounts are selected: who's selected, quick actions, and bulk edit. */
-export function BulkPanel({ picked, busy, onClear, onPin, onSignInAgain, onApply }: Props) {
+export function BulkPanel({ picked, busy, onClear, onPin, onGroup, onSignInAgain, onApply }: Props) {
   const [field, setField] = useState<FieldDef>(ALL_FIELDS[0])
   const [tpl, setTpl] = useState('{{ current }}')
   const { targets, jobs } = useMemo(() => bulkJobs(picked, field, tpl), [picked, field, tpl])
@@ -100,6 +102,10 @@ export function BulkPanel({ picked, busy, onClear, onPin, onSignInAgain, onApply
           <button className="btn" onClick={() => onPin(!allPinned)}>
             {allPinned ? <PinOff size={15} aria-hidden /> : <Pin size={15} aria-hidden />}
             {allPinned ? 'Unpin' : 'Pin'}
+          </button>
+          <button className="btn" onClick={onGroup} aria-haspopup="menu">
+            <Folder size={15} aria-hidden />
+            Group
           </button>
           {signedOut > 0 && (
             <button className="btn" onClick={onSignInAgain}>

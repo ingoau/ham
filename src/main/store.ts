@@ -5,7 +5,7 @@
 import { app } from 'electron'
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import { DEFAULT_VIEW, type Account, type Theme, type ViewSettings } from '@shared/types'
+import { DEFAULT_VIEW, type Account, type AccountGroup, type Theme, type ViewSettings } from '@shared/types'
 
 export interface StoredAccount extends Account {
   /** Electron session partition holding this account's cookies. */
@@ -35,6 +35,7 @@ export interface InboxSettings {
 interface StoreFile {
   version: 2
   accounts: StoredAccount[]
+  groups: AccountGroup[]
   window?: WindowState
   dismissedUpdate?: string
   theme: Theme
@@ -62,6 +63,7 @@ function migrate(raw: Record<string, unknown>): StoreFile {
       status: a.status ?? 'signed-out',
       fresh: a.fresh ?? false,
       pinned: a.pinned ?? false,
+      groupId: a.groupId ?? null,
       expiresAt: a.expiresAt ?? null,
       addedAt: a.addedAt ?? new Date().toISOString(),
       pending: a.pending ?? EMPTY_PENDING,
@@ -69,6 +71,7 @@ function migrate(raw: Record<string, unknown>): StoreFile {
       partition: a.partition!,
       attemptPath: a.attemptPath ?? null
     })),
+    groups: Array.isArray(raw.groups) ? (raw.groups as AccountGroup[]).filter((g) => g && typeof g.id === 'string') : [],
     window: raw.window as WindowState | undefined,
     dismissedUpdate: raw.dismissedUpdate as string | undefined,
     theme: (raw.theme as Theme) ?? 'system',
@@ -131,6 +134,17 @@ export class Store {
     const listed = ids.map((id) => byId.get(id)).filter((a): a is StoredAccount => !!a)
     const rest = this.data.accounts.filter((a) => !ids.includes(a.id))
     this.data.accounts = [...listed, ...rest]
+    this.flush()
+  }
+
+  get groups(): AccountGroup[] {
+    return this.data.groups
+  }
+  set groups(groups: AccountGroup[]) {
+    this.data.groups = groups
+    // Accounts in a group that no longer exists become ungrouped.
+    const ids = new Set(groups.map((g) => g.id))
+    this.data.accounts = this.data.accounts.map((a) => (a.groupId && !ids.has(a.groupId) ? { ...a, groupId: null } : a))
     this.flush()
   }
 
