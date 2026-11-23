@@ -51,15 +51,16 @@ jobs:
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
       - uses: actions/setup-node@v5
         with:
           node-version: 24
-          cache: npm
-      - run: npm ci
-      - run: npm test
-      - run: npm run build
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm test
+      - run: pnpm build
       - name: Package and upload to the draft release
-        run: npx electron-builder --publish always
+        run: pnpm exec electron-builder --publish always
         env:
           GH_TOKEN: ${{ github.token }}
 

@@ -1,6 +1,6 @@
 // Drives HAM in demo mode (HAM_MOCK=1) with Playwright and saves screenshots
 // of the main UI states to docs/screenshots. Nothing is sent to
-// auth.hackclub.com. Run with `npm run screenshots` (macOS gives the best
+// auth.hackclub.com. Run with `pnpm screenshots` (macOS gives the best
 // result, since it captures the real window including the embedded view).
 import { _electron as electron } from 'playwright-core'
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'

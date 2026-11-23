@@ -1,5 +1,5 @@
 // Generates HAM's brand assets from the wordmark: "HAM" in Outfit ExtraBold
-// (800), letter-spacing -0.04em. Run with `npm run icons` (macOS, for iconutil).
+// (800), letter-spacing -0.04em. Run with `pnpm icons` (macOS, for iconutil).
 //
 //   build/icon.png            1024 px master (electron-builder fallback)
 //   build/icon.icns           macOS icon with per-size artwork

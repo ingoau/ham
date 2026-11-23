@@ -60,15 +60,17 @@ Hack Club Auth has no API for editing a profile, so HAM uses the same form endpo
 
 ## Development
 
+HAM uses [pnpm](https://pnpm.io) (the version is pinned in `package.json`).
+
 ```sh
-npm install
-npm run dev          # run the app with hot reload
-HAM_MOCK=1 HAM_MOCK_SEED=1 npm run dev   # demo mode: a fake server with sample accounts
-npm run typecheck
-npm test             # unit tests (parsers, lockdown rules, versions)
-npm run build && node scripts/smoke.mjs  # UI smoke test in demo mode
-npm run screenshots  # regenerate docs/screenshots (demo mode)
-npm run dist         # package for the current platform into dist/
+pnpm install
+pnpm dev             # run the app with hot reload
+HAM_MOCK=1 HAM_MOCK_SEED=1 pnpm dev   # demo mode: a fake server with sample accounts
+pnpm typecheck
+pnpm test            # unit tests (parsers, lockdown rules, versions)
+pnpm build && node scripts/smoke.mjs  # UI smoke test in demo mode
+pnpm screenshots     # regenerate docs/screenshots (demo mode)
+pnpm dist            # package for the current platform into dist/
 ```
 
 In demo mode:
@@ -89,7 +91,7 @@ The [Release workflow](.github/workflows/release.yml) builds every platform, att
 
 ## Brand
 
-The logo is the wordmark "HAM" in [Outfit](https://fonts.google.com/specimen/Outfit) ExtraBold (800) with -0.04em letter-spacing: ink `#1c1917` on light, white on dark. The app icon is the wordmark in white on an ink rounded square, cut down to "H" at 32 px and below. `npm run icons` regenerates every icon and the README wordmark from it. Outfit is also the UI font. It's bundled with the app and licensed under the SIL Open Font License.
+The logo is the wordmark "HAM" in [Outfit](https://fonts.google.com/specimen/Outfit) ExtraBold (800) with -0.04em letter-spacing: ink `#1c1917` on light, white on dark. The app icon is the wordmark in white on an ink rounded square, cut down to "H" at 32 px and below. `pnpm icons` regenerates every icon and the README wordmark from it. Outfit is also the UI font. It's bundled with the app and licensed under the SIL Open Font License.
 
 ## License
 
