@@ -1,6 +1,6 @@
 {
   "name": "ham",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Hack Club Account Manager: manage several Hack Club Auth accounts in one place",
   "main": "out/main/index.js",
   "scripts": {
