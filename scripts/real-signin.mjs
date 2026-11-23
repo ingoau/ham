@@ -11,7 +11,7 @@ import { _electron as electron } from 'playwright-core'
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, unlinkSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
-import { execFileSync } from 'node:child_process'
+import { captureWindow } from './capture.mjs'
 
 const EMAIL = process.env.HAM_TEST_EMAIL
 if (!EMAIL) throw new Error('Set HAM_TEST_EMAIL')
@@ -28,10 +28,11 @@ const log = (...a) => console.log(new Date().toISOString().slice(11, 19), ...a)
 
 async function shot(name) {
   await page.waitForTimeout(400)
-  const file = join(OUT, `${name}.png`)
-  const id = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getMediaSourceId())
-  execFileSync('screencapture', ['-x', '-o', `-l${id.split(':')[1]}`, file])
-  log('screenshot', file)
+  try {
+    log('screenshot', await captureWindow(app, join(OUT, `${name}.png`)))
+  } catch (err) {
+    log('screenshot failed (continuing):', err.message)
+  }
 }
 
 try {
@@ -112,7 +113,7 @@ try {
   await page.getByRole('button', { name: 'Sign out and remove' }).click()
   await page.getByRole('button', { name: 'Sign out', exact: true }).click()
   await page.locator('.empty').waitFor({ timeout: 30_000 })
-  log('signed out:', await page.locator('.toast').first().textContent())
+  log('signed out:', await page.locator('[data-sonner-toast]').first().textContent())
   log('REAL_E2E_OK')
 } catch (err) {
   log('REAL_E2E_FAILED', err)

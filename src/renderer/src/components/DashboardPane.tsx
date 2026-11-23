@@ -1,6 +1,6 @@
 import { useEffect, useLayoutEffect, useRef } from 'react'
 import type { Account, DashboardNotice, DashboardState } from '@shared/types'
-import { BackIcon, HomeIcon, LockIcon, PopOutIcon, RefreshIcon } from '../icons'
+import { ChevronLeft, ExternalLink, House, Lock, RotateCw } from 'lucide-react'
 
 interface Props {
   account: Account
@@ -62,16 +62,16 @@ export function DashboardPane({ account, covered, state, notice, onDismissNotice
     <div className="dashboard">
       <div className="dash-toolbar">
         <button className="icon-btn" aria-label="Back" disabled={!current?.canGoBack} onClick={() => void window.ham.dashboard.back()}>
-          <BackIcon />
+          <ChevronLeft size={17} aria-hidden />
         </button>
         <button className="icon-btn" aria-label="Home" onClick={() => void window.ham.dashboard.home()}>
-          <HomeIcon />
+          <House size={16} aria-hidden />
         </button>
         <button className="icon-btn" aria-label="Reload" onClick={() => void window.ham.dashboard.reload()}>
-          <RefreshIcon size={15} className={current?.loading ? 'spin' : undefined} />
+          <RotateCw size={15} aria-hidden className={current?.loading ? 'spin' : undefined} />
         </button>
         <div className="dash-address" title="HAM only shows auth.hackclub.com">
-          <LockIcon size={12} />
+          <Lock size={12} aria-hidden />
           <span>
             auth.hackclub.com<span style={{ color: 'var(--muted)' }}>{path === '/' ? '' : path}</span>
           </span>
@@ -84,7 +84,7 @@ export function DashboardPane({ account, covered, state, notice, onDismissNotice
             onPoppedOut()
           }}
         >
-          <PopOutIcon size={14} />
+          <ExternalLink size={14} aria-hidden />
           Pop out
         </button>
       </div>

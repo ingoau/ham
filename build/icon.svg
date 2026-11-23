@@ -1,0 +1,32 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#e03a52"/>
+      <stop offset="1" stop-color="#b8213a"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="125%">
+      <feDropShadow dx="0" dy="12" stdDeviation="14" flood-color="#000" flood-opacity="0.28"/>
+    </filter>
+    <!-- hide the back account where it passes behind the front one -->
+    <mask id="behind">
+      <rect width="1024" height="1024" fill="#fff"/>
+      <g fill="#000" stroke="#000" stroke-width="140" stroke-linecap="round">
+        <circle cx="430" cy="440" r="118"/>
+        <path d="M226 790c20-128 100-206 204-206s184 78 204 206z"/>
+      </g>
+    </mask>
+  </defs>
+  <!-- macOS icon grid: an 824px rounded square centred in the 1024px canvas -->
+  <rect x="100" y="100" width="824" height="824" rx="186" fill="url(#bg)" filter="url(#shadow)"/>
+  <rect x="100" y="100" width="824" height="824" rx="186" fill="none" stroke="#ffffff" stroke-opacity="0.12" stroke-width="4"/>
+  <!-- back account -->
+  <g fill="none" stroke="#ffffff" stroke-opacity="0.6" stroke-width="44" stroke-linecap="round" mask="url(#behind)">
+    <circle cx="640" cy="410" r="92"/>
+    <path d="M520 700c18-92 76-148 154-148s136 56 154 148"/>
+  </g>
+  <!-- front account -->
+  <g fill="none" stroke="#ffffff" stroke-width="52" stroke-linecap="round">
+    <circle cx="430" cy="440" r="118"/>
+    <path d="M226 790c20-128 100-206 204-206s184 78 204 206"/>
+  </g>
+</svg>

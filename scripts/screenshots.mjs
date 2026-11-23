@@ -3,13 +3,18 @@
 // auth.hackclub.com. Run with `npm run screenshots` (macOS gives the best
 // result, since it captures the real window including the embedded view).
 import { _electron as electron } from 'playwright-core'
-import { execFileSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
+import { captureWindow } from './capture.mjs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 
 const OUT = resolve('docs/screenshots')
 mkdirSync(OUT, { recursive: true })
+
+async function shot(app, name) {
+  await new Promise((r) => setTimeout(r, 450))
+  console.log('saved', await captureWindow(app, join(OUT, `${name}.png`)))
+}
 
 async function launch({ seed }) {
   const dir = mkdtempSync(join(tmpdir(), 'ham-shots-'))
@@ -27,22 +32,6 @@ async function launch({ seed }) {
   })
   await page.waitForLoadState('domcontentloaded')
   return { app, page, dir }
-}
-
-async function shot(app, name) {
-  await new Promise((r) => setTimeout(r, 450))
-  const file = join(OUT, `${name}.png`)
-  if (process.platform === 'darwin') {
-    const id = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].getMediaSourceId())
-    execFileSync('screencapture', ['-x', '-o', `-l${id.split(':')[1]}`, file])
-    execFileSync('sips', ['-Z', '1680', file], { stdio: 'ignore' })
-  } else {
-    const b64 = await app.evaluate(async ({ BrowserWindow }) =>
-      (await BrowserWindow.getAllWindows()[0].capturePage()).toPNG().toString('base64')
-    )
-    writeFileSync(file, Buffer.from(b64, 'base64'))
-  }
-  console.log('saved', file)
 }
 
 // Playwright pins pages to a light colour scheme, so set it on every page it

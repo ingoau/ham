@@ -1,21 +1,18 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
+import * as Tabs from '@radix-ui/react-tabs'
+import { Lock, RotateCw, UserPlus } from 'lucide-react'
+import { Toaster, toast } from 'sonner'
 import type { Account, AppState, DashboardNotice, DashboardState, MenuCommand, SaveResult } from '@shared/types'
-import { AlertIcon, CheckIcon, LockIcon, RefreshIcon, UserPlusIcon } from './icons'
 import { displayName, matches } from './util'
 import { AddAccountSheet } from './components/AddAccountSheet'
 import { Avatar } from './components/Avatar'
-import { ConfirmDialog } from './components/ConfirmDialog'
 import { DashboardPane } from './components/DashboardPane'
 import { ProfileForm, type ProfileFormHandle } from './components/ProfileForm'
 import { SessionCard } from './components/SessionCard'
 import { Sidebar } from './components/Sidebar'
+import { SignOutDialog } from './components/SignOutDialog'
 
 type Tab = 'profile' | 'web'
-interface Toast {
-  id: number
-  text: string
-  error?: boolean
-}
 
 const remembered = {
   get: (key: string) => {
@@ -42,18 +39,12 @@ export function App() {
   const [query, setQuery] = useState('')
   const [sheet, setSheet] = useState<null | { reauth?: { accountId: string; email: string } }>(null)
   const [confirmSignOut, setConfirmSignOut] = useState<Account | null>(null)
-  const [toasts, setToasts] = useState<Toast[]>([])
   const [refreshing, setRefreshing] = useState(false)
   const [dashState, setDashState] = useState<DashboardState | null>(null)
   const [notice, setNotice] = useState<DashboardNotice | null>(null)
   const searchRef = useRef<HTMLInputElement>(null)
   const formRef = useRef<ProfileFormHandle>(null)
-
-  const toast = useCallback((text: string, error = false) => {
-    const id = Date.now() + Math.random()
-    setToasts((t) => [...t.slice(-2), { id, text, error }])
-    setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), 3200)
-  }, [])
+  const menuRef = useRef<(c: MenuCommand) => void>(() => {})
 
   useEffect(() => {
     void window.ham.getState().then((s) => {
@@ -84,22 +75,22 @@ export function App() {
   const showDashboard = tab === 'web' && !!selected && !signedOut
   const overlayOpen = sheet !== null || confirmSignOut !== null
 
-  const refresh = async (account: Account | null = selected) => {
-    if (!account || refreshing) return
+  const refresh = async () => {
+    if (!selected || refreshing) return
     setRefreshing(true)
     try {
-      const r = await window.ham.accounts.refresh(account.id)
-      if (r.ok) toast('Profile is up to date')
-      else if (r.reason === 'signed-out') toast('This account was signed out', true)
-      else toast(r.message ?? "Couldn't reach auth.hackclub.com", true)
+      const r = await window.ham.accounts.refresh(selected.id)
+      if (r.ok) toast.success('Profile is up to date')
+      else if (r.reason === 'signed-out') toast.error('This account was signed out')
+      else toast.error(r.message ?? "Couldn't reach auth.hackclub.com")
     } finally {
       setRefreshing(false)
     }
   }
 
   const onSaved = (result: SaveResult) => {
-    if (result.ok) toast('Saved to auth.hackclub.com')
-    else if (result.reason === 'signed-out') toast('Signed out. Sign in again to save.', true)
+    if (result.ok) toast.success('Saved to auth.hackclub.com')
+    else if (result.reason === 'signed-out') toast.error('Signed out. Sign in again to save.')
   }
 
   const openAdd = () => {
@@ -110,12 +101,12 @@ export function App() {
   const signOut = async (account: Account) => {
     const { serverSignedOut } = await window.ham.accounts.signOut(account.id)
     setConfirmSignOut(null)
-    toast(serverSignedOut ? `Signed out of ${account.email}` : `Removed ${account.email}. Its session will expire on its own.`)
+    if (serverSignedOut) toast.success(`Signed out of ${account.email}`)
+    else toast(`Removed ${account.email}`, { description: "HAM couldn't reach the server, so the session will expire on its own." })
     if (selectedId === account.id) setSelectedId(null)
   }
 
-  // Menu commands and shortcuts. Kept in a ref so the listener above sees fresh state.
-  const menuRef = useRef<(c: MenuCommand) => void>(() => {})
+  // Menu commands and shortcuts. Kept in a ref so the listener sees fresh state.
   menuRef.current = (command: MenuCommand) => {
     if (overlayOpen && command.type !== 'add-account') return
     switch (command.type) {
@@ -127,7 +118,7 @@ export function App() {
         searchRef.current?.select()
         break
       case 'save':
-        if (tab === 'profile') formRef.current?.save()
+        if (!showDashboard) formRef.current?.save()
         break
       case 'refresh':
         if (showDashboard) void window.ham.dashboard.reload()
@@ -137,8 +128,7 @@ export function App() {
         if (selected && !signedOut) setTab((t) => (t === 'profile' ? 'web' : 'profile'))
         break
       case 'select-index': {
-        const shown = accounts.filter((a) => matches(a, query))
-        const target = shown[command.index]
+        const target = accounts.filter((a) => matches(a, query))[command.index]
         if (target) select(target.id)
         break
       }
@@ -148,17 +138,16 @@ export function App() {
     }
   }
 
-  // Esc closes the top overlay, or reverts unsaved changes.
+  // Esc reverts unsaved profile changes (dialogs handle their own Esc).
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      if (e.key !== 'Escape' || e.defaultPrevented) return
-      if (confirmSignOut) setConfirmSignOut(null)
-      else if (sheet) setSheet(null)
-      else if (formRef.current?.revert()) toast('Changes reverted')
+      if (e.key !== 'Escape' || e.defaultPrevented || overlayOpen) return
+      if ((e.target as HTMLElement | null)?.id === 'search') return
+      if (formRef.current?.revert()) toast('Changes reverted')
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [confirmSignOut, sheet, toast])
+  }, [overlayOpen])
 
   if (!app) return <div className="app" />
 
@@ -185,27 +174,31 @@ export function App() {
             <button className="btn" onClick={() => void window.ham.dismissUpdate()}>
               Later
             </button>
-            <button className="btn btn-primary" style={{ minHeight: 34 }} onClick={() => void window.ham.openExternal(app.update!.url)}>
+            <button className="btn btn-primary btn-small" onClick={() => void window.ham.openExternal(app.update!.url)}>
               Download
             </button>
           </div>
         )}
 
-        <div className="content-scroll" style={showDashboard ? { overflow: 'hidden' } : undefined}>
+        <div className={`content-scroll${showDashboard ? ' locked' : ''}`}>
           {!selected ? (
             <div className="empty">
               <div className="glyph">
-                <UserPlusIcon size={34} strokeWidth={1.8} />
+                <UserPlus size={34} strokeWidth={1.8} aria-hidden />
               </div>
               <h1>No accounts yet</h1>
               <p>Sign in with your Hack Club account to see and edit it here. You can add as many accounts as you have.</p>
-              <button className="btn btn-primary" style={{ minHeight: 44, padding: '0 22px', fontSize: 15 }} onClick={openAdd}>
+              <button className="btn btn-primary btn-large" onClick={openAdd}>
                 Add account
               </button>
-              {app.info.mock && <p style={{ fontSize: 12 }}>Demo mode: nothing is sent to auth.hackclub.com.</p>}
+              {app.info.mock && <p className="demo-note">Demo mode: nothing is sent to auth.hackclub.com.</p>}
             </div>
           ) : (
-            <div className={`detail${showDashboard ? ' wide' : ''}`}>
+            <Tabs.Root
+              className={`detail${showDashboard ? ' wide' : ''}`}
+              value={showDashboard ? 'web' : 'profile'}
+              onValueChange={(v) => setTab(v as Tab)}
+            >
               <header className="detail-header">
                 <Avatar account={selected} size={60} />
                 <div className="who">
@@ -214,7 +207,7 @@ export function App() {
                 </div>
                 {!showDashboard && (
                   <button className="btn" onClick={() => void refresh()} disabled={signedOut || refreshing}>
-                    <RefreshIcon size={15} className={refreshing ? 'spin' : undefined} />
+                    <RotateCw size={15} aria-hidden className={refreshing ? 'spin' : undefined} />
                     Refresh
                   </button>
                 )}
@@ -222,14 +215,13 @@ export function App() {
 
               {signedOut && (
                 <div className="banner warn">
-                  <LockIcon size={20} />
+                  <Lock size={20} aria-hidden />
                   <span className="text">
                     <strong>This account is signed out</strong>
                     <span>Its session on this computer has ended. Sign in again to edit it.</span>
                   </span>
                   <button
                     className="btn btn-primary"
-                    style={{ background: 'var(--accent)', color: 'var(--accent-text)', borderColor: 'transparent' }}
                     onClick={() => setSheet({ reauth: { accountId: selected.id, email: selected.email } })}
                   >
                     Sign in again
@@ -237,43 +229,38 @@ export function App() {
                 </div>
               )}
 
-              <div className="tabs" role="tablist" aria-label="Account views">
-                <button role="tab" className="tab" aria-selected={!showDashboard} onClick={() => setTab('profile')}>
+              <Tabs.List className="tabs" aria-label="Account views">
+                <Tabs.Trigger className="tab" value="profile">
                   Profile
-                </button>
-                <button role="tab" className="tab" aria-selected={showDashboard} disabled={signedOut} onClick={() => setTab('web')}>
+                </Tabs.Trigger>
+                <Tabs.Trigger className="tab" value="web" disabled={signedOut}>
                   Hack Club Auth
-                </button>
-              </div>
+                </Tabs.Trigger>
+              </Tabs.List>
 
-              {showDashboard ? (
-                <DashboardPane
-                  account={selected}
-                  covered={overlayOpen}
-                  state={dashState}
-                  notice={notice}
-                  onDismissNotice={() => setNotice(null)}
-                  onPoppedOut={() => setTab('profile')}
-                />
-              ) : (
-                <>
-                  <ProfileForm ref={formRef} account={selected} onSaved={onSaved} />
-                  <SessionCard account={selected} onSignOut={() => setConfirmSignOut(selected)} />
-                </>
-              )}
-            </div>
+              <Tabs.Content value="profile" className="tab-panel">
+                <ProfileForm ref={formRef} account={selected} onSaved={onSaved} />
+                <SessionCard account={selected} onSignOut={() => setConfirmSignOut(selected)} />
+              </Tabs.Content>
+              <Tabs.Content value="web" className="tab-panel grow">
+                {showDashboard && (
+                  <DashboardPane
+                    account={selected}
+                    covered={overlayOpen}
+                    state={dashState}
+                    notice={notice}
+                    onDismissNotice={() => setNotice(null)}
+                    onPoppedOut={() => setTab('profile')}
+                  />
+                )}
+              </Tabs.Content>
+            </Tabs.Root>
           )}
         </div>
-
-        <div className={`toasts${showDashboard ? ' top' : ''}`} aria-live="polite">
-          {toasts.map((t) => (
-            <div key={t.id} className={`toast${t.error ? ' error' : ''}`} role="status">
-              {t.error ? <AlertIcon /> : <CheckIcon />}
-              {t.text}
-            </div>
-          ))}
-        </div>
       </main>
+
+      {/* Over the dashboard the native view would hide toasts, so they move to the top. */}
+      <Toaster position={showDashboard ? 'top-right' : 'bottom-right'} theme="system" closeButton={false} duration={3200} />
 
       {sheet && (
         <AddAccountSheet
@@ -281,29 +268,18 @@ export function App() {
           reauth={sheet.reauth}
           onClose={() => setSheet(null)}
           onDone={(accountId, existing) => {
+            const acct = app.accounts.find((a) => a.id === accountId)
+            if (sheet.reauth) toast.success('Signed in again')
+            else if (existing && acct) toast(`${acct.email} is already in HAM`)
+            else toast.success('Account added')
             setSheet(null)
             select(accountId)
-            const acct = app.accounts.find((a) => a.id === accountId)
-            if (sheet.reauth) toast('Signed in again')
-            else if (existing && acct) toast(`${acct.email} is already in HAM`)
-            else toast('Account added')
           }}
         />
       )}
 
       {confirmSignOut && (
-        <ConfirmDialog
-          title={confirmSignOut.status === 'signed-in' ? `Sign out of ${confirmSignOut.email}?` : `Remove ${confirmSignOut.email}?`}
-          message={
-            confirmSignOut.status === 'signed-in'
-              ? 'This ends the session on auth.hackclub.com and removes the account from HAM. You can add it again later.'
-              : 'This removes the account and its data from this computer. You can add it again later.'
-          }
-          confirmLabel={confirmSignOut.status === 'signed-in' ? 'Sign out' : 'Remove'}
-          busyLabel="Signing out…"
-          onCancel={() => setConfirmSignOut(null)}
-          onConfirm={() => signOut(confirmSignOut)}
-        />
+        <SignOutDialog account={confirmSignOut} onCancel={() => setConfirmSignOut(null)} onConfirm={() => signOut(confirmSignOut)} />
       )}
     </div>
   )

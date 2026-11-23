@@ -1,5 +1,5 @@
 import type { Account } from '@shared/types'
-import { SignOutIcon } from '../icons'
+import { LogOut } from 'lucide-react'
 import { daysUntil, formatDate } from '../util'
 
 export function SessionCard({ account, onSignOut }: { account: Account; onSignOut(): void }) {
@@ -30,7 +30,7 @@ export function SessionCard({ account, onSignOut }: { account: Account; onSignOu
             : 'Removing the account deletes its data from this computer.'}
         </span>
         <button className="btn btn-danger" onClick={onSignOut}>
-          <SignOutIcon size={15} />
+          <LogOut size={15} aria-hidden />
           {signedIn ? 'Sign out and remove' : 'Remove account'}
         </button>
       </div>

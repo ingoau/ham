@@ -1,6 +1,6 @@
 import { forwardRef, useEffect, useImperativeHandle, useState, type ChangeEvent, type FormEvent } from 'react'
 import type { Account, SaveResult } from '@shared/types'
-import { InfoIcon } from '../icons'
+import { Info } from 'lucide-react'
 
 export interface ProfileFormHandle {
   save(): void
@@ -117,7 +117,7 @@ export const ProfileForm = forwardRef<ProfileFormHandle, Props>(function Profile
 
       {account.hasLegalName && (
         <div className="banner info">
-          <InfoIcon />
+          <Info size={16} aria-hidden style={{ flex: 'none' }} />
           <span className="text">
             This account also has a legal name on file from verification. It isn't changed here; contact Hack Club to
             update it.

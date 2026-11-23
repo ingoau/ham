@@ -1,0 +1,64 @@
+appId: com.ingoau.ham
+productName: HAM
+copyright: Copyright © 2026 Ingo Wolf
+directories:
+  output: dist
+  buildResources: build
+# Everything is bundled by electron-vite, so the app needs only its build output.
+files:
+  - out/**
+  - package.json
+  - '!**/*.map'
+asar: true
+electronLanguages: [en]
+
+# Electron fuses, flipped at package time. Cookie encryption keeps every
+# account's session cookies encrypted on disk with the OS keychain (Keychain,
+# DPAPI, or libsecret/kwallet). The rest stop the packaged binary from being
+# used as a plain Node.js runtime or debugged through command-line flags.
+electronFuses:
+  runAsNode: false
+  enableCookieEncryption: true
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  onlyLoadAppFromAsar: true
+  grantFileProtocolExtraPrivileges: false
+
+mac:
+  category: public.app-category.utilities
+  # No Developer ID yet: ad-hoc sign so the Apple Silicon build still launches.
+  identity: '-'
+  hardenedRuntime: false
+  target:
+    - target: dmg
+      arch: [arm64, x64]
+    - target: zip
+      arch: [arm64, x64]
+  artifactName: HAM-${version}-mac-${arch}.${ext}
+dmg:
+  title: HAM ${version}
+
+win:
+  target:
+    - target: nsis
+      arch: [x64, arm64]
+  artifactName: HAM-${version}-win-${arch}.${ext}
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  shortcutName: HAM
+
+linux:
+  target:
+    - target: AppImage
+      arch: [x64, arm64]
+  category: Utility
+  synopsis: Manage your Hack Club Auth accounts
+  artifactName: HAM-${version}-linux-${arch}.${ext}
+
+publish:
+  provider: github
+  owner: ingoau
+  repo: ham
+  releaseType: draft

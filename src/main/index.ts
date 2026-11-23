@@ -1,5 +1,6 @@
-import { app, BrowserWindow, ipcMain, nativeTheme, screen, shell } from 'electron'
-import { join } from 'node:path'
+import { app, BrowserWindow, ipcMain, nativeTheme, net, protocol, screen, shell } from 'electron'
+import { join, normalize, sep } from 'node:path'
+import { pathToFileURL } from 'node:url'
 import { IPC, type InvokeMethod } from '@shared/ipc'
 import type { AppState, Bounds, HamEvent, MenuCommand, ProfileInput, UpdateInfo } from '@shared/types'
 import { AccountService } from './accounts'
@@ -22,6 +23,24 @@ if (process.platform === 'win32') app.setAppUserModelId('com.ingoau.ham')
 
 if (!app.requestSingleInstanceLock()) {
   app.quit()
+}
+
+// The UI is served from app://ham/ rather than file://, so packaged builds can
+// turn off the file protocol's extra privileges (see electronFuses).
+protocol.registerSchemesAsPrivileged([
+  { scheme: 'app', privileges: { standard: true, secure: true, supportFetchAPI: true } }
+])
+const RENDERER_DIR = join(__dirname, '../renderer')
+
+function serveRenderer() {
+  protocol.handle('app', (request) => {
+    const url = new URL(request.url)
+    const path = normalize(join(RENDERER_DIR, decodeURIComponent(url.pathname === '/' ? '/index.html' : url.pathname)))
+    if (url.host !== 'ham' || (path !== RENDERER_DIR && !path.startsWith(RENDERER_DIR + sep))) {
+      return new Response('Not found', { status: 404 })
+    }
+    return net.fetch(pathToFileURL(path).toString())
+  })
 }
 
 let mainWindow: BrowserWindow | null = null
@@ -118,7 +137,7 @@ function createWindow() {
   if (!app.isPackaged && process.env.ELECTRON_RENDERER_URL) {
     void win.loadURL(process.env.ELECTRON_RENDERER_URL)
   } else {
-    void win.loadFile(join(__dirname, '../renderer/index.html'))
+    void win.loadURL('app://ham/index.html')
   }
 
   win.on('closed', () => {
@@ -187,6 +206,7 @@ app.on('web-contents-created', (_event, contents) => {
 })
 
 app.whenReady().then(async () => {
+  serveRenderer()
   store = new Store()
   seedIfRequested()
   accounts = new AccountService(store, (partition) => (MOCK ? new MockBackend(partition) : new AuthClient(partition)), broadcastState)

@@ -1,6 +1,6 @@
 import { forwardRef, type KeyboardEvent } from 'react'
 import type { Account } from '@shared/types'
-import { PlusIcon, SearchIcon } from '../icons'
+import { Plus, Search } from 'lucide-react'
 import { displayName, matches } from '../util'
 import { Avatar } from './Avatar'
 
@@ -38,7 +38,7 @@ export const Sidebar = forwardRef<HTMLInputElement, Props>(function Sidebar(
           <label htmlFor="search" className="visually-hidden">
             Search accounts
           </label>
-          <SearchIcon size={13} />
+          <Search size={13} aria-hidden />
           <input
             id="search"
             ref={searchRef}
@@ -80,7 +80,7 @@ export const Sidebar = forwardRef<HTMLInputElement, Props>(function Sidebar(
 
       <div className="sidebar-footer">
         <button className="btn btn-block" onClick={onAdd}>
-          <PlusIcon />
+          <Plus size={16} aria-hidden />
           Add account
         </button>
       </div>
