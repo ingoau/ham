@@ -14,6 +14,7 @@ const TABS: [AddMode, string][] = [
 
 
 interface Props {
+  open?: boolean
   mode: AddMode
   accounts: Account[]
   inboxOn: boolean
@@ -23,7 +24,7 @@ interface Props {
   onOpenSettings(): void
 }
 
-export function AddAccountsDialog({ mode, accounts, inboxOn, onMode, onClose, onAdd, onOpenSettings }: Props) {
+export function AddAccountsDialog({ open = true, mode, accounts, inboxOn, onMode, onClose, onAdd, onOpenSettings }: Props) {
   const [email, setEmail] = useState('')
   const [paste, setPaste] = useState('')
   const [found, setFound] = useState<FoundAddress[] | null>(null)
@@ -58,7 +59,7 @@ export function AddAccountsDialog({ mode, accounts, inboxOn, onMode, onClose, on
     mode === 'one' ? 'Add' : toAdd.length ? `Add ${toAdd.length} ${toAdd.length === 1 ? 'account' : 'accounts'}` : 'Add accounts'
 
   return (
-    <Dialog.Root open onOpenChange={(o) => !o && onClose()}>
+    <Dialog.Root open={open} onOpenChange={(o) => !o && onClose()}>
       <Dialog.Portal>
         <Dialog.Overlay className="overlay" />
         <Dialog.Content

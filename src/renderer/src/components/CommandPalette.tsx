@@ -34,7 +34,7 @@ export function CommandPalette({ open, onOpenChange, accounts, selectedId, mod, 
     fn()
   }
   return (
-    <Command.Dialog open={open} onOpenChange={onOpenChange} label="Search accounts and actions" overlayClassName="overlay" contentClassName="cmdk-dialog" loop>
+    <Command.Dialog open={open} onOpenChange={onOpenChange} label="Search accounts and actions" overlayClassName="overlay instant" contentClassName="cmdk-dialog" loop>
       <Command.Input className="cmdk-input" placeholder="Search accounts and actions…" />
       <Command.List className="cmdk-list">
         <Command.Empty className="cmdk-empty">No matches.</Command.Empty>

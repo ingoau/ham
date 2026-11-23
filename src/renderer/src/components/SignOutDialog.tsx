@@ -3,17 +3,18 @@ import * as AlertDialog from '@radix-ui/react-alert-dialog'
 import type { Account } from '@shared/types'
 
 interface Props {
+  open?: boolean
   account: Account
   onConfirm(): Promise<void>
   onCancel(): void
 }
 
-export function SignOutDialog({ account, onConfirm, onCancel }: Props) {
+export function SignOutDialog({ open = true, account, onConfirm, onCancel }: Props) {
   const [busy, setBusy] = useState(false)
   const signedIn = account.status === 'signed-in'
 
   return (
-    <AlertDialog.Root open onOpenChange={(open) => !open && !busy && onCancel()}>
+    <AlertDialog.Root open={open} onOpenChange={(open) => !open && !busy && onCancel()}>
       <AlertDialog.Portal>
         <AlertDialog.Overlay className="overlay" />
         <AlertDialog.Content className="sheet">

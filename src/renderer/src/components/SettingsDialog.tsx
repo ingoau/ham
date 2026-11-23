@@ -17,7 +17,7 @@ const PROVIDERS = [
   { id: 'other', name: 'Other', host: '', note: 'Any IMAP server over TLS. Outlook.com isn’t supported yet (it needs OAuth).' }
 ]
 
-export function SettingsDialog({ app, onClose }: { app: AppState; onClose(): void }) {
+export function SettingsDialog({ open = true, app, onClose }: { open?: boolean; app: AppState; onClose(): void }) {
   const [provider, setProvider] = useState<string | null>(PROVIDERS[0].id)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
@@ -59,7 +59,7 @@ export function SettingsDialog({ app, onClose }: { app: AppState; onClose(): voi
   const canLink = !linking && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email.trim()) && password.length > 0 && host.trim().length > 0
 
   return (
-    <Dialog.Root open onOpenChange={(o) => !o && onClose()}>
+    <Dialog.Root open={open} onOpenChange={(o) => !o && onClose()}>
       <Dialog.Portal>
         <Dialog.Overlay className="overlay" />
         <Dialog.Content className="sheet sheet-wide" aria-describedby={undefined}>

@@ -2,6 +2,7 @@ import { useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 
 interface Props {
+  open?: boolean
   /** Empty for a new group. */
   initial: string
   /** How many accounts go into a new group. */
@@ -10,12 +11,12 @@ interface Props {
   onClose(): void
 }
 
-export function GroupNameDialog({ initial, count, onSubmit, onClose }: Props) {
+export function GroupNameDialog({ open = true, initial, count, onSubmit, onClose }: Props) {
   const [name, setName] = useState(initial)
   const renaming = initial !== ''
   const clean = name.trim()
   return (
-    <Dialog.Root open onOpenChange={(open) => !open && onClose()}>
+    <Dialog.Root open={open} onOpenChange={(o) => !o && onClose()}>
       <Dialog.Portal>
         <Dialog.Overlay className="overlay" />
         <Dialog.Content className="sheet" aria-describedby={undefined}>

@@ -24,6 +24,7 @@ import { AddAccountsDialog, type AddMode } from './components/AddAccountsDialog'
 import { Avatar } from './components/Avatar'
 import { BulkPanel } from './components/BulkPanel'
 import { GroupNameDialog } from './components/GroupNameDialog'
+import { useLatched } from './latch'
 import { CommandPalette, type PaletteAction } from './components/CommandPalette'
 import { DashboardPane } from './components/DashboardPane'
 import { PendingPane } from './components/PendingPane'
@@ -91,6 +92,10 @@ export function App() {
   const [sheet, setSheet] = useState<Sheet>(null)
   const [confirmSignOut, setConfirmSignOut] = useState<Account | null>(null)
   const [slackConfirm, setSlackConfirm] = useState<Account | null>(null)
+  // Dialogs keep their content while they animate closed.
+  const sheetLatch = useLatched(sheet)
+  const signOutLatch = useLatched(confirmSignOut)
+  const slackLatch = useLatched(slackConfirm)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [dashState, setDashState] = useState<DashboardState | null>(null)
@@ -614,6 +619,8 @@ export function App() {
   }, [overlayOpen, picked, accounts])
 
   if (!app) return <div className="app" />
+  const shownSheet = sheetLatch.value
+  const slackShown = slackLatch.value!
 
   const pickedAccounts = accounts.filter((a) => picked.has(a.id))
 
@@ -785,9 +792,11 @@ export function App() {
         onAction={onPalette}
       />
 
-      {sheet?.kind === 'add' && (
+      {shownSheet?.kind === 'add' && (
         <AddAccountsDialog
-          mode={sheet.mode}
+          key={sheetLatch.n}
+          open={sheetLatch.open}
+          mode={shownSheet.mode}
           accounts={accounts}
           inboxOn={inboxOn}
           onMode={(mode) => setSheet({ kind: 'add', mode })}
@@ -796,35 +805,52 @@ export function App() {
           onOpenSettings={() => setSheet({ kind: 'settings' })}
         />
       )}
-      {sheet?.kind === 'settings' && <SettingsDialog app={app} onClose={() => setSheet(null)} />}
+      {shownSheet?.kind === 'settings' && <SettingsDialog key={sheetLatch.n} open={sheetLatch.open} app={app} onClose={() => setSheet(null)} />}
 
-      {sheet?.kind === 'new-group' && (
-        <GroupNameDialog initial="" count={sheet.ids.length} onClose={() => setSheet(null)} onSubmit={(name) => void createGroup(name, sheet.ids)} />
-      )}
-      {sheet?.kind === 'rename-group' && (
+      {shownSheet?.kind === 'new-group' && (
         <GroupNameDialog
-          initial={sheet.group.name}
+          key={sheetLatch.n}
+          open={sheetLatch.open}
+          initial=""
+          count={shownSheet.ids.length}
+          onClose={() => setSheet(null)}
+          onSubmit={(name) => void createGroup(name, shownSheet.ids)}
+        />
+      )}
+      {shownSheet?.kind === 'rename-group' && (
+        <GroupNameDialog
+          key={sheetLatch.n}
+          open={sheetLatch.open}
+          initial={shownSheet.group.name}
           count={0}
           onClose={() => setSheet(null)}
           onSubmit={(name) => {
             setSheet(null)
-            void window.ham.groups.rename(sheet.group.id, name)
+            void window.ham.groups.rename(shownSheet.group.id, name)
           }}
         />
       )}
-      {confirmSignOut && <SignOutDialog account={confirmSignOut} onCancel={() => setConfirmSignOut(null)} onConfirm={() => remove(confirmSignOut)} />}
+      {signOutLatch.value && (
+        <SignOutDialog
+          key={signOutLatch.n}
+          open={signOutLatch.open}
+          account={signOutLatch.value}
+          onCancel={() => setConfirmSignOut(null)}
+          onConfirm={() => remove(signOutLatch.value!)}
+        />
+      )}
 
-      {slackConfirm && (
-        <AlertDialog.Root open onOpenChange={(o) => !o && setSlackConfirm(null)}>
+      {slackLatch.value && (
+        <AlertDialog.Root key={slackLatch.n} open={slackLatch.open} onOpenChange={(o) => !o && setSlackConfirm(null)}>
           <AlertDialog.Portal>
             <AlertDialog.Overlay className="overlay" />
             <AlertDialog.Content className="sheet">
               <div className="sheet-head">
                 <AlertDialog.Title>
-                  {slackConfirm.slack.linked === false ? 'This account isn’t on Slack yet' : 'Open Hack Club Slack?'}
+                  {slackShown.slack.linked === false ? 'This account isn’t on Slack yet' : 'Open Hack Club Slack?'}
                 </AlertDialog.Title>
                 <AlertDialog.Description className="lead">
-                  If {slackConfirm.email} isn’t on Slack yet, signing in through Hack Club creates a Hack Club Slack account for it and adds it to the workspace.
+                  If {slackShown.email} isn’t on Slack yet, signing in through Hack Club creates a Hack Club Slack account for it and adds it to the workspace.
                 </AlertDialog.Description>
               </div>
               <div className="dialog-actions">
@@ -832,11 +858,11 @@ export function App() {
                 <AlertDialog.Action
                   className="btn btn-primary"
                   onClick={() => {
-                    void window.ham.accounts.launchSlack(slackConfirm.id)
+                    void window.ham.accounts.launchSlack(slackShown.id)
                     setSlackConfirm(null)
                   }}
                 >
-                  {slackConfirm.slack.linked === false ? 'Create and open Slack' : 'Open Slack'}
+                  {slackShown.slack.linked === false ? 'Create and open Slack' : 'Open Slack'}
                 </AlertDialog.Action>
               </div>
             </AlertDialog.Content>
