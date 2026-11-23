@@ -34,7 +34,7 @@ export function recipientsOf(
 }
 
 /** Clock slack between this computer and the mail server when matching codes to attempts. */
-export const CLOCK_SKEW_MS = 60_000
+export const CLOCK_SKEW_MS = 15_000
 
 export interface CodeMail {
   key: string

@@ -1,8 +1,5 @@
-import { describe, expect, it, vi } from 'vitest'
-
-vi.mock('@radix-ui/react-dialog', () => ({}))
-vi.mock('lucide-react', () => ({}))
-const { parseEmailList } = await import('../src/renderer/src/components/AddAccountsDialog')
+import { describe, expect, it } from 'vitest'
+import { parseEmailList } from '../src/renderer/src/emails'
 
 describe('parseEmailList', () => {
   it('splits on newlines, commas and semicolons', () => {

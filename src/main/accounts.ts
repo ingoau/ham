@@ -370,7 +370,7 @@ export class AccountService {
         if (auto) {
           // Probably a code from an older attempt: keep watching for the right one.
           const a = this.store.find(id)
-          this.patchPending(id, { autoCode: null })
+          this.patchPending(id, { autoCode: null, message: 'The code from your inbox didn’t work. Waiting for a newer one.' })
           if (a?.pending?.startedAt) this.inbox?.expect(id, a.email, Date.parse(a.pending.startedAt))
         }
         return { ok: false, message: outcome.message }

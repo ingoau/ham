@@ -9,6 +9,10 @@ import { HCA_SENDER, codeFromSubject, matchCodes, parseHostPort, recipientsOf, t
 import type { InboxSettings, Store } from './store'
 
 const POLL_MS = 5_000
+const DEBUG = process.env.HAM_DEBUG_INBOX === '1'
+const debug = (...args: unknown[]) => {
+  if (DEBUG) console.log('[inbox]', ...args)
+}
 const SKIP_SPECIAL = new Set(['\\Trash', '\\Drafts', '\\Sent', '\\All', '\\Flagged'])
 
 type CodeListener = (accountId: string, code: string, messageKey: string) => void
@@ -29,6 +33,7 @@ export class InboxService {
   private pollTimer: NodeJS.Timeout | null = null
   private reconnectTimer: NodeJS.Timeout | null = null
   private checking = false
+  private checkStartedAt = 0
   private recheck = false
   private retryMs = 5_000
   private primary = 'INBOX'
@@ -266,6 +271,14 @@ export class InboxService {
   private schedulePoll() {
     if (this.pollTimer) return
     this.pollTimer = setInterval(() => {
+      // Watchdog: a check stuck on a dead connection resets it, and the
+      // connection's close handler reconnects.
+      if (this.checking && Date.now() - this.checkStartedAt > 60_000) {
+        debug('check stuck; reconnecting')
+        this.checking = false
+        this.client?.close()
+        return
+      }
       if (this.expectations.size > 0) void this.check()
     }, POLL_MS)
   }
@@ -277,16 +290,21 @@ export class InboxService {
       return
     }
     this.checking = true
+    this.checkStartedAt = Date.now()
     try {
       const exps = [...this.expectations.values()]
+      debug('check', exps.length, 'expectations')
       const earliest = Math.min(...exps.map((e) => e.since))
       // IMAP SEARCH SINCE is by date, so look back a day and filter precisely below.
       const since = new Date(earliest - 86_400_000)
       const mails: CodeMail[] = []
-      for (const path of await this.candidates()) {
+      const paths = await this.candidates()
+      debug('folders', paths)
+      for (const path of paths) {
         const lock = await this.client.getMailboxLock(path, { readOnly: true })
         try {
           const uids = (await this.client.search({ from: HCA_SENDER, since }, { uid: true })) || []
+          debug(path, uids.length, 'HCA messages since', since.toISOString())
           const fresh = uids.filter((u) => !this.used.has(`${path}:${u}`)).slice(-50)
           if (fresh.length === 0) continue
           for await (const msg of this.client.fetch(
@@ -309,14 +327,16 @@ export class InboxService {
           lock.release()
         }
       }
+      debug('mails', mails.length, mails.map((m) => [m.key, m.receivedAt]))
       for (const hit of matchCodes(mails, exps, this.used)) {
         const path = hit.key.slice(0, hit.key.lastIndexOf(':'))
         if (path !== 'INBOX') this.rememberFolder(path)
         this.expectations.delete(hit.accountId)
         this.onCode(hit.accountId, hit.code, hit.key)
       }
-    } catch {
+    } catch (err) {
       // A dropped connection reconnects on its own; try again next poll.
+      debug('check failed', err)
     } finally {
       this.checking = false
       if (this.recheck) {

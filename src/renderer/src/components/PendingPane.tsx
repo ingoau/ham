@@ -90,15 +90,25 @@ export function PendingPane({ account: a, inbox, now, onRemove, onOpenSettings }
             </button>
           </div>
         </div>
-      ) : inboxOn ? (
+      ) : inboxOn && p?.autoCode ? (
         <div className="pending-head">
-          <h2>{p?.autoCode ? 'Code found, signing in…' : 'Waiting for the sign-in email…'}</h2>
+          <h2>Code found, signing in…</h2>
           <p className="muted">Watching {inbox.email} for the email from Hack Club Auth.</p>
           <div className="field">
-            <label htmlFor="auto-code">{p?.autoCode ? 'From your inbox' : 'Sign-in code'}</label>
-            <CodeField id="auto-code" value={p?.autoCode ?? ''} onChange={() => {}} disabled />
+            <label htmlFor="auto-code">From your inbox</label>
+            <CodeField id="auto-code" value={p.autoCode} onChange={() => {}} disabled />
           </div>
         </div>
+      ) : inboxOn ? (
+        <form className="pending-head" onSubmit={onSubmit}>
+          <h2>Waiting for the sign-in email…</h2>
+          <p className="muted">Watching {inbox.email} for the email from Hack Club Auth.</p>
+          <div className="field">
+            <label htmlFor="pending-code">Sign-in code</label>
+            <CodeField id="pending-code" value={code} disabled={busy} onChange={(v) => (setCode(v), setError(null))} onComplete={(v) => void submit(v)} />
+          </div>
+          {(error || p?.message) && <p className="error-text" role="alert">{error ?? p?.message}</p>}
+        </form>
       ) : (
         <form className="pending-head" onSubmit={onSubmit}>
           <h2>Enter the code we emailed</h2>

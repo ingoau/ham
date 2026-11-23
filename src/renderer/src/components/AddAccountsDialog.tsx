@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { Check, X } from 'lucide-react'
 import type { Account } from '@shared/types'
+import { isEmail, parseEmailList } from '../emails'
 
 export type AddMode = 'one' | 'paste' | 'inbox'
 
@@ -11,14 +12,6 @@ const TABS: [AddMode, string][] = [
   ['inbox', 'Find in inbox']
 ]
 
-const EMAIL = /^[^@\s]+@[^@\s]+\.[^@\s]+$/
-
-export function parseEmailList(text: string): string[] {
-  return text
-    .split(/[\n,;]+/)
-    .map((s) => s.trim().toLowerCase())
-    .filter((s) => EMAIL.test(s))
-}
 
 interface Props {
   mode: AddMode
@@ -58,7 +51,7 @@ export function AddAccountsDialog({ mode, accounts, inboxOn, onMode, onClose, on
   const selected = foundSel ?? new Set(foundNew)
   const foundPicked = foundNew.filter((e) => selected.has(e))
   const one = email.trim().toLowerCase()
-  const toAdd = mode === 'one' ? (EMAIL.test(one) ? [one] : []) : mode === 'paste' ? pastedNew : inboxOn ? foundPicked : []
+  const toAdd = mode === 'one' ? (isEmail(one) ? [one] : []) : mode === 'paste' ? pastedNew : inboxOn ? foundPicked : []
   const button =
     mode === 'one' ? 'Add' : toAdd.length ? `Add ${toAdd.length} ${toAdd.length === 1 ? 'account' : 'accounts'}` : 'Add accounts'
 

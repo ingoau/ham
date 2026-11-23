@@ -37,10 +37,10 @@ async function shot(name) {
 
 try {
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0].setSize(1120, 740))
-  await page.getByRole('button', { name: 'Add account' }).first().click()
-  await page.getByLabel('Email').fill(EMAIL)
-  await page.getByRole('button', { name: 'Send code' }).click()
-  await page.getByLabel('Sign-in code').waitFor({ timeout: 30_000 })
+  await page.getByRole('button', { name: 'Add account', exact: true }).click()
+  await page.locator('#add-email').fill(EMAIL)
+  await page.getByRole('button', { name: 'Add', exact: true }).click()
+  await page.locator('#pending-code').waitFor({ timeout: 30_000 })
   log('CODE_REQUESTED')
 
   let code = ''
@@ -49,8 +49,8 @@ try {
     if (existsSync(CODE_FILE)) code = readFileSync(CODE_FILE, 'utf8').trim()
   }
   if (!code) throw new Error('No code arrived')
-  await page.getByLabel('Sign-in code').fill(code.replace(/\D/g, ''))
-  await page.locator('.account-row').first().waitFor({ timeout: 30_000 })
+  await page.locator('#pending-code').fill(code.replace(/\D/g, ''))
+  await page.locator('.detail-header .email', { hasText: EMAIL }).waitFor({ timeout: 30_000 })
   log('signed in as', await page.locator('.detail-header h1').textContent())
   await shot('real-profile')
 

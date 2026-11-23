@@ -13,10 +13,14 @@ HAM signs in to [Hack Club Auth](https://auth.hackclub.com) with your email, kee
 
 ## Features
 
-- **Add accounts by email.** HAM sends you a code, then asks for an authenticator or backup code if the account uses two-factor. Passkeys are always skipped.
+- **Add accounts by email, a pasted list, or straight from your inbox.** Accounts appear at once and sign in inline. A queue keeps within Hack Club Auth's rate limits.
+- **Link an inbox** (Gmail, iCloud, Fastmail or any IMAP over TLS, read-only) and sign-in codes fill themselves in. You only ever type authenticator codes.
 - **Every account in one list**, with a "Signed out" badge when a session has ended.
 - **A command palette** (Cmd+K) to jump to any account or run an action.
 - **Edit name and phone number.** Changes save straight to auth.hackclub.com.
+- **Select and bulk edit** with Jinja templates (`{{ account.first | lower }}-alt{{ index }}`): preview every change, apply in the background, undo.
+- **View options:** sort, group and choose what each row shows, including templates.
+- **Launch Slack** for any account in its own window, signed in through Hack Club.
 - **The Hack Club Auth dashboard, embedded** for each account and already signed in, or popped out into its own window. It's locked to auth.hackclub.com: it can't be used to sign in to other apps, and other links open in your browser.
 - **Light and dark** themes that follow your system, plus keyboard shortcuts.
 
@@ -80,7 +84,10 @@ In demo mode:
 - `passkey…` needs a passkey as the only second factor
 - the code `000000` is always wrong
 
-`scripts/real-signin.mjs` runs the same checks against the real auth.hackclub.com with a test account (`HAM_TEST_EMAIL=… node scripts/real-signin.mjs`, then write the emailed code to `.screenshots-tmp/code.txt`).
+Against the real servers (not in CI):
+
+- `scripts/real-signin.mjs` signs in a test account with a typed code, edits it, checks the dashboard lockdown and signs out (`HAM_TEST_EMAIL=…`, then write the emailed code to `.screenshots-tmp/code.txt`).
+- `scripts/real-autofill.mjs` links an IMAP inbox and checks that the code fills itself in (`HAM_TEST_EMAIL`, `HAM_IMAP_HOST`, `HAM_IMAP_USER_FILE`, `HAM_IMAP_PASS_FILE`).
 
 ## Releasing
 
