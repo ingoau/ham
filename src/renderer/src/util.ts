@@ -23,6 +23,12 @@ export function accountName(a: Pick<Account, 'localName' | 'firstName' | 'lastNa
   return a.localName.trim() || displayName(a)
 }
 
+/** The most personal name there is: local name, Slack display name, Slack full name, then the Hack Club name. */
+export function bestName(a: Pick<Account, 'localName' | 'firstName' | 'lastName' | 'email' | 'slack'>): string {
+  const sl = a.slack.profile
+  return a.localName.trim() || sl.display_name?.trim() || sl.real_name?.trim() || displayName(a)
+}
+
 export function formatDate(iso: string | null): string {
   if (!iso) return 'Unknown'
   const d = new Date(iso)

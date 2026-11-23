@@ -18,7 +18,7 @@ export function LocalNameCard({ account }: { account: Account }) {
       <div>
         <h2 id="local-heading">Local name</h2>
         <p className="lead" id="local-lead">
-          Only kept in HAM. To show it in the list, pick it as a line in View options.
+          Only kept in HAM, never sent to Hack Club. The list shows it ahead of Slack and Hack Club names.
         </p>
       </div>
       <div className="field">

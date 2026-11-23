@@ -24,6 +24,14 @@ try {
   if ((await page.locator('.account-row').count()) !== 3) throw new Error('expected 3 seeded accounts')
   step('lists seeded accounts')
 
+  // The first line defaults to the best name: Slack display name over the Hack Club name.
+  if (!(await names()).includes('fiona-leads')) throw new Error(`best name not shown: ${(await names()).join()}`)
+  await page.getByRole('button', { name: 'View options' }).click()
+  await page.locator('#view-line1').selectOption('hca')
+  await page.keyboard.press('Escape')
+  await row('Fiona Hackworth').first().waitFor({ timeout: 5_000 })
+  step('shows the best name by default, and Hack Club names on request')
+
   await page.locator('.search-button').click()
   await page.locator('.cmdk-input').fill('sam')
   await page.keyboard.press('Enter')
@@ -140,12 +148,12 @@ try {
   await page.locator('#local-name').fill('Sam main')
   await page.keyboard.press('Enter')
   await page.waitForTimeout(300)
-  if ((await names()).includes('Sam main')) throw new Error('local name replaced the list name')
+  if ((await names()).includes('Sam main')) throw new Error('local name showed with the Hack Club name line')
   await page.getByRole('button', { name: 'View options' }).click()
-  await page.locator('#view-line1').selectOption('local')
+  await page.locator('#view-line1').selectOption('best')
   await page.keyboard.press('Escape')
   await row('Sam main').waitFor({ timeout: 5_000 })
-  step('sets a local name and shows it as the first line')
+  step('sets a local name and shows it as the best name')
 
   // View options: group by status, template first line.
   await page.getByRole('button', { name: 'View options' }).click()

@@ -81,7 +81,7 @@ async function theme(app, source) {
   await page.locator('.account-row', { hasText: 'Sam Rivera' }).click()
   await shot(app, 'signed-out')
 
-  // Local names: set two, then show them as the list's first line.
+  // Local names: set two; the list's default first line (best name) shows them.
   await page.locator('[data-sonner-toast]').first().waitFor({ state: 'detached', timeout: 10_000 }).catch(() => {})
   await page.locator('.account-row', { hasText: 'fiona.leads@example.org' }).click()
   await page.locator('#local-name').fill('Club leads')
@@ -93,14 +93,12 @@ async function theme(app, source) {
   await page.locator('#local-name').scrollIntoViewIfNeeded()
   await shot(app, 'local-name')
   await page.getByRole('button', { name: 'View options' }).click()
-  await page.locator('#view-line1').selectOption('local')
   await page.locator('#view-line2').selectOption('hca')
   await page.keyboard.press('Escape')
   await page.locator('.content-scroll').evaluate((el) => el.scrollTo(0, 0))
   await page.evaluate(() => document.activeElement?.blur())
   await shot(app, 'local-name-list')
   await page.getByRole('button', { name: 'View options' }).click()
-  await page.locator('#view-line1').selectOption('hca')
   await page.locator('#view-line2').selectOption('email')
   await page.keyboard.press('Escape')
   await page.locator('.content-scroll').evaluate((el) => el.scrollTo(0, 0))
