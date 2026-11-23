@@ -516,7 +516,8 @@ html.platform-darwin .titlebar { padding-left: 98px; }
 .settings-section h3 { margin: 0; font-size: 14px; font-weight: 600; }
 .providers { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 6px; }
 .provider { min-height: 36px; border: 1px solid var(--border-strong); border-radius: 9px; background: var(--field); font-size: 13px; font-weight: 500; }
-.provider[aria-checked='true'] { border-color: var(--accent); background: var(--accent-soft); color: var(--text); }
+.provider:not([aria-checked='true']):hover { background: var(--hover); }
+.provider[aria-checked='true'] { border-color: var(--text); background: var(--tab-active); color: var(--text); font-weight: 600; }
 .inbox-form { display: flex; flex-direction: column; gap: 12px; }
 .linked-inbox { display: flex; align-items: center; gap: 12px; }
 .linked-text { flex: 1; min-width: 0; display: flex; flex-direction: column; }

@@ -11,14 +11,14 @@ const THEMES: [Theme, string][] = [
 ]
 
 const PROVIDERS = [
-  { id: 'fastmail', name: 'Fastmail', host: 'imap.fastmail.com:993', note: 'Make an app password in Fastmail Settings › Privacy & Security.' },
-  { id: 'icloud', name: 'iCloud', host: 'imap.mail.me.com:993', note: 'Make an app-specific password at account.apple.com.' },
   { id: 'gmail', name: 'Gmail', host: 'imap.gmail.com:993', note: 'Needs 2-Step Verification and an app password.' },
+  { id: 'icloud', name: 'iCloud', host: 'imap.mail.me.com:993', note: 'Make an app-specific password at account.apple.com.' },
+  { id: 'fastmail', name: 'Fastmail', host: 'imap.fastmail.com:993', note: 'Make an app password in Fastmail Settings › Privacy & Security.' },
   { id: 'other', name: 'Other', host: '', note: 'Any IMAP server over TLS. Outlook.com isn’t supported yet (it needs OAuth).' }
 ]
 
 export function SettingsDialog({ app, onClose }: { app: AppState; onClose(): void }) {
-  const [provider, setProvider] = useState('fastmail')
+  const [provider, setProvider] = useState<string | null>(PROVIDERS[0].id)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [host, setHost] = useState(PROVIDERS[0].host)
@@ -27,7 +27,7 @@ export function SettingsDialog({ app, onClose }: { app: AppState; onClose(): voi
   const [checking, setChecking] = useState(false)
   const inbox = app.inbox
   const linked = inbox.state !== 'off'
-  const prov = PROVIDERS.find((p) => p.id === provider)!
+  const prov = PROVIDERS.find((p) => p.id === provider)
 
   const link = async (e: FormEvent) => {
     e.preventDefault()
@@ -115,7 +115,7 @@ export function SettingsDialog({ app, onClose }: { app: AppState; onClose(): voi
                     </button>
                   ))}
                 </div>
-                <p className="muted small">{prov.note}</p>
+                {prov && <p className="muted small">{prov.note}</p>}
                 <div className="field">
                   <label htmlFor="imap-email">Email address</label>
                   <input id="imap-email" type="email" autoComplete="off" value={email} onChange={(e) => setEmail(e.target.value)} />

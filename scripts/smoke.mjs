@@ -59,8 +59,8 @@ try {
   await page.getByText('3 new · 1 already in HAM or repeated').waitFor()
   await page.getByRole('button', { name: 'Add 3 accounts' }).click()
   await row('One Alt').waitFor({ timeout: 15_000 })
-  await row('new.three@example.com').getByText('Fix').waitFor({ timeout: 10_000 })
-  await row('2fa.two@example.com').getByText('2FA').waitFor({ timeout: 15_000 })
+  await row('new.three@example.com').locator('.badge', { hasText: 'Fix' }).waitFor({ timeout: 10_000 })
+  await row('2fa.two@example.com').locator('.badge', { hasText: '2FA' }).waitFor({ timeout: 15_000 })
   step('pasted accounts sign in with autofilled codes; unknown email shows Fix')
 
   await row('2fa.two@example.com').locator('.row-main').click()
