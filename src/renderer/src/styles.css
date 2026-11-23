@@ -636,11 +636,11 @@ textarea {
 .tag-chip.add.icon-only { width: 24px; padding: 0; justify-content: center; }
 
 .swatches { display: flex; gap: 8px; flex-wrap: wrap; }
-.swatch { width: 28px; height: 28px; border-radius: 50%; border: 0; background: var(--tag); color: #ffffff; display: inline-flex; align-items: center; justify-content: center; }
+.swatch { width: 28px; height: 28px; border-radius: 50%; border: 0; background: var(--tag); color: var(--bg); display: inline-flex; align-items: center; justify-content: center; }
 .swatch[aria-checked='true'] { box-shadow: 0 0 0 2px var(--bg), 0 0 0 4px var(--tag); }
 .field .label { font-size: 13px; font-weight: 500; }
 
-.icon-btn { position: relative; }
+.titlebar-actions .icon-btn { position: relative; }
 .icon-btn.active { color: var(--accent); background: var(--accent-soft); }
 .icon-btn.active:not(:disabled):hover { color: var(--accent); background: var(--accent-soft); }
 .icon-badge { position: absolute; top: 2px; right: 1px; min-width: 14px; height: 14px; padding: 0 3px; border-radius: 7px; background: var(--accent); color: var(--accent-text); font-size: 9px; font-weight: 700; line-height: 14px; text-align: center; font-variant-numeric: tabular-nums; }

@@ -13,10 +13,12 @@ interface Props {
   nextColor?: TagColor
   onSubmit(name: string, color: TagColor): void
   onClose(): void
+  /** Where focus goes on close when the element that opened the dialog is gone. */
+  returnFocus?(): void
 }
 
 /** Name and colour for a new or existing tag. */
-export function TagDialog({ open = true, tag, count, nextColor = 'blue', onSubmit, onClose }: Props) {
+export function TagDialog({ open = true, tag, count, nextColor = 'blue', onSubmit, onClose, returnFocus }: Props) {
   const [name, setName] = useState(tag?.name ?? '')
   const [color, setColor] = useState<TagColor>(tag?.color ?? nextColor)
   const clean = name.trim()
@@ -25,7 +27,15 @@ export function TagDialog({ open = true, tag, count, nextColor = 'blue', onSubmi
     <Dialog.Root open={open} onOpenChange={(o) => !o && onClose()}>
       <Dialog.Portal>
         <Dialog.Overlay className="overlay" />
-        <Dialog.Content className="sheet" aria-describedby={undefined}>
+        <Dialog.Content
+          className="sheet"
+          aria-describedby={undefined}
+          onCloseAutoFocus={(e) => {
+            if (!returnFocus) return
+            e.preventDefault()
+            returnFocus()
+          }}
+        >
           <div className="sheet-head">
             <Dialog.Title>{tag ? 'Edit tag' : 'New tag'}</Dialog.Title>
           </div>

@@ -274,7 +274,7 @@ function registerIpc() {
       broadcastState()
     },
     'settings.setView': (view: ViewSettings) => {
-      store.view = withDefaults(view ?? {})
+      store.view = store.pruneFilter(withDefaults(view ?? {}))
       broadcastState()
     },
     'settings.checkForUpdates': async () => {

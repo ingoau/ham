@@ -12,7 +12,7 @@ import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } 
 import { CSS } from '@dnd-kit/utilities'
 import { Check, ChevronDown, ListFilter, Pin, Plus, Search, Settings, SlidersHorizontal, X } from 'lucide-react'
 import { EMPTY_FILTER, type Account, type AccountFilter, type AccountTag, type ViewSettings } from '@shared/types'
-import { badgeFor, type GroupModel, type RowModel } from '../view'
+import { badgeFor, filterCount as countFilters, type GroupModel, type RowModel } from '../view'
 import { Avatar } from './Avatar'
 import { FilterMenu } from './FilterMenu'
 import { TagDots } from './Tags'
@@ -121,7 +121,7 @@ function AccountRow({ row, tags, draggable, showSub, checked, current, inboxOn, 
 export function Sidebar(props: Props) {
   const { groups, showSub, order, visible, filtering, draggable, accounts, tags, selectedId, picked, inboxOn, mod, view, progress } = props
   const tagsOf = (a: Account) => tags.filter((t) => a.tagIds.includes(t.id))
-  const filterCount = view.filter.tags.length + view.filter.status.length
+  const filterCount = countFilters(view.filter, new Set(tags.map((t) => t.id)))
   const picking = picked.size > 0
   const [dragging, setDragging] = useState(false)
   // A small threshold so clicks and right-clicks never start a drag.
@@ -193,7 +193,7 @@ export function Sidebar(props: Props) {
             onNewTag={props.onNewTag}
             onTagMenu={props.onTagMenu}
           >
-            <button className={`icon-btn${filtering ? ' active' : ''}`} aria-label={filtering ? `Filter (${filterCount} on)` : 'Filter'}>
+            <button data-filter-button className={`icon-btn${filtering ? ' active' : ''}`} aria-label={filtering ? `Filter (${filterCount} on)` : 'Filter'}>
               <ListFilter size={16} aria-hidden />
               {filtering && <span className="icon-badge" aria-hidden>{filterCount}</span>}
             </button>

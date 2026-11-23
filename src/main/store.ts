@@ -192,11 +192,16 @@ export class Store {
     // A deleted tag comes off every account and out of the filter.
     const ids = new Set(tags.map((t) => t.id))
     this.data.accounts = this.data.accounts.map((a) => (a.tagIds.every((t) => ids.has(t)) ? a : { ...a, tagIds: a.tagIds.filter((t) => ids.has(t)) }))
-    const f = this.data.view.filter
-    if (f.tags.some((t) => t !== NO_TAGS && !ids.has(t))) {
-      this.data.view = { ...this.data.view, filter: { ...f, tags: f.tags.filter((t) => t === NO_TAGS || ids.has(t)) } }
-    }
+    this.data.view = this.pruneFilter(this.data.view)
     this.flush()
+  }
+
+  /** Drop deleted tags from a view's filter ("No tags" too, once there are none). */
+  pruneFilter(view: ViewSettings): ViewSettings {
+    const ids = new Set(this.data.tags.map((t) => t.id))
+    const keep = (t: string) => (t === NO_TAGS ? ids.size > 0 : ids.has(t))
+    const f = view.filter
+    return f.tags.every(keep) ? view : { ...view, filter: { ...f, tags: f.tags.filter(keep) } }
   }
 
   remove(id: string) {

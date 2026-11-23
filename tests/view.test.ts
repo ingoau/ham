@@ -125,6 +125,9 @@ describe('buildView', () => {
     expect(v.filtering).toBe(true)
     expect(v.draggable).toBe(false)
     expect(buildView([a, b, c], view({ tags: ['t1'], status: ['signed-out'] }), noTpl, false, NOW, groups, known).visible).toEqual([b.id])
+    // A deleted tag left in the filter doesn't count as filtering.
+    const stale = buildView([a, b, c], view({ tags: ['gone'] }), noTpl, false, NOW, groups, known)
+    expect([stale.filtering, stale.draggable, stale.visible.length]).toEqual([false, true, 3])
   })
   it('matches any or all tags, and accounts with no (known) tags', () => {
     const known = new Set(['t1', 't2'])

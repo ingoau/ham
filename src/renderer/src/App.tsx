@@ -48,7 +48,7 @@ type Sheet =
   | { kind: 'new-group'; ids: string[] }
   | { kind: 'rename-group'; group: AccountGroup }
   | { kind: 'local-name'; account: Account }
-  | { kind: 'tag'; tag: AccountTag | null; ids: string[] }
+  | { kind: 'tag'; tag: AccountTag | null; ids: string[]; fromFilter?: boolean }
 
 const remembered = {
   get: (key: string) => {
@@ -160,12 +160,11 @@ export function App() {
     remembered.set('selected', selected?.id ?? null)
   }, [selected?.id])
 
-  // Drop picked ids that no longer exist.
+  // Drop picked ids that no longer exist or that the filter hides (bulk actions shouldn't reach unseen accounts).
   useEffect(() => {
-    if ([...picked].some((id) => !accounts.some((a) => a.id === id))) {
-      setPicked(new Set([...picked].filter((id) => accounts.some((a) => a.id === id))))
-    }
-  }, [accounts, picked])
+    const shown = new Set(viewModel.visible)
+    if ([...picked].some((id) => !shown.has(id))) setPicked(new Set([...picked].filter((id) => shown.has(id))))
+  }, [viewModel.visible, picked])
 
   const select = (id: string) => {
     setSelectedId(id)
@@ -375,20 +374,15 @@ export function App() {
     handleTagChoice(await window.ham.ui.contextMenu(tagItems(list)), list)
   }
 
-  /** Show only accounts that pass the filter, and drop hidden ones from the selection. */
+  /** Show only accounts that pass the filter (hidden ones leave the selection, see above). */
   const setFilter = (filter: AccountFilter) => {
-    if (!app) return
-    const next = { ...app.view, filter }
-    setView(next)
-    if (picked.size) {
-      const shown = new Set(buildView(accounts, next, tv, inboxOn, now, groups, new Set(tags.map((t) => t.id))).visible)
-      if ([...picked].some((id) => !shown.has(id))) setPicked(new Set([...picked].filter((id) => shown.has(id))))
-    }
+    if (app) setView({ ...app.view, filter })
   }
 
   const deleteTag = (tag: AccountTag) => {
     const members = accounts.filter((a) => a.tagIds.includes(tag.id)).map((a) => a.id)
     const at = tags.findIndex((t) => t.id === tag.id)
+    const wasFiltered = !!app?.view.filter.tags.includes(tag.id)
     void window.ham.tags.remove(tag.id)
     toast(`Deleted “${tag.name}”`, {
       action: {
@@ -399,6 +393,11 @@ export function App() {
           const order = tags.map((t) => t.id).filter((t) => t !== tag.id)
           order.splice(at, 0, id)
           void window.ham.tags.reorder(order)
+          // Deleting took it out of the filter: put it back.
+          if (wasFiltered) {
+            const { view } = await window.ham.getState()
+            if (!view.filter.tags.includes(id)) setView({ ...view, filter: { ...view.filter, tags: [...view.filter.tags, id] } })
+          }
         }
       }
     })
@@ -410,7 +409,7 @@ export function App() {
     const members = accounts.filter((a) => a.tagIds.includes(tag.id))
     const choice = await window.ham.ui.contextMenu([
       { id: 'edit', label: 'Edit…' },
-      { id: 'select', label: 'Select Accounts with Tag', enabled: members.length > 0 },
+      { id: 'select', label: 'Select Accounts with Tag', enabled: members.some((a) => viewModel.visible.includes(a.id)) },
       { id: 'up', label: 'Move Up', enabled: at > 0 },
       { id: 'down', label: 'Move Down', enabled: at < tags.length - 1 },
       { type: 'separator' },
@@ -419,10 +418,12 @@ export function App() {
     switch (choice) {
       case 'edit':
         setFilterOpen(false)
-        return setSheet({ kind: 'tag', tag, ids: [] })
-      case 'select':
+        return setSheet({ kind: 'tag', tag, ids: [], fromFilter: true })
+      case 'select': {
         setFilterOpen(false)
-        return setPicked(new Set(members.map((a) => a.id)))
+        const shown = new Set(viewModel.visible)
+        return setPicked(new Set(members.map((a) => a.id).filter((id) => shown.has(id))))
+      }
       case 'up':
       case 'down': {
         const ids = tags.map((t) => t.id)
@@ -711,7 +712,7 @@ export function App() {
       return
     }
     if (command.type === 'filter') {
-      if (sheet === null && confirmSignOut === null && !paletteOpen) setFilterOpen((o) => !o)
+      if (!overlayOpen || filterOpen) setFilterOpen((o) => !o)
       return
     }
     if (overlayOpen) return
@@ -794,7 +795,7 @@ export function App() {
         onFilter={setFilter}
         onNewTag={() => {
           setFilterOpen(false)
-          setSheet({ kind: 'tag', tag: null, ids: [] })
+          setSheet({ kind: 'tag', tag: null, ids: [], fromFilter: true })
         }}
         onTagMenu={(t) => void showTagMenu(t)}
         selectedId={selected?.id ?? null}
@@ -1043,6 +1044,7 @@ export function App() {
           nextColor={TAG_COLORS[tags.length % TAG_COLORS.length]}
           onClose={() => setSheet(null)}
           onSubmit={(name, color) => void saveTag(shownSheet.tag, shownSheet.ids, name, color)}
+          returnFocus={shownSheet.fromFilter ? () => document.querySelector<HTMLElement>('[data-filter-button]')?.focus() : undefined}
         />
       )}
       {signOutLatch.value && (

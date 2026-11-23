@@ -119,7 +119,10 @@ export const STATUS_FILTERS: [StatusFilter, string][] = [
   ['adding', 'Adding']
 ]
 
-export const filterActive = (f: AccountFilter) => f.tags.length > 0 || f.status.length > 0
+/** How many filter options are on. Tags that no longer exist don't count. */
+export const filterCount = (f: AccountFilter, knownTags?: Set<string>) =>
+  f.tags.filter((t) => t === NO_TAGS || !knownTags || knownTags.has(t)).length + f.status.length
+export const filterActive = (f: AccountFilter, knownTags?: Set<string>) => filterCount(f, knownTags) > 0
 
 /** Whether an account passes the sidebar filter. Tags that no longer exist are ignored. */
 export function matchesFilter(a: Account, f: AccountFilter, knownTags?: Set<string>): boolean {
@@ -165,7 +168,7 @@ export function buildView(
   userGroups: AccountGroup[] = [],
   knownTags?: Set<string>
 ) {
-  const filtering = filterActive(view.filter)
+  const filtering = filterActive(view.filter, knownTags)
   const total = accounts.length
   if (filtering) accounts = accounts.filter((a) => matchesFilter(a, view.filter, knownTags))
   const titleOf = (a: Account) => (a.fresh && isPending(a.status) ? a.email : lineValue(a, view.line1, tv.line1.get(a.id)))

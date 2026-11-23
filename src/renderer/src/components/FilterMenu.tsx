@@ -82,7 +82,7 @@ export function FilterMenu({ open, onOpenChange, filter, tags, accounts, onChang
                 </span>
               </CheckRow>
             ))}
-            {tags.length > 0 && (
+            {(tags.length > 0 || filter.tags.includes(NO_TAGS)) && (
               <CheckRow checked={filter.tags.includes(NO_TAGS)} onToggle={() => set({ tags: toggle(filter.tags, NO_TAGS) })} count={untagged}>
                 <span className="muted">No tags</span>
               </CheckRow>
@@ -103,7 +103,7 @@ export function FilterMenu({ open, onOpenChange, filter, tags, accounts, onChang
             ))}
           </section>
           <div className="view-foot">
-            <button className="btn-link strong inline" disabled={!filterActive(filter)} onClick={() => onChange(EMPTY_FILTER)}>
+            <button className="btn-link strong inline" disabled={!filterActive(filter, known)} onClick={() => onChange(EMPTY_FILTER)}>
               Clear filter
             </button>
             <Popover.Close className="btn btn-small">Done</Popover.Close>
