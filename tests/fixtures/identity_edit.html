@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>Account Settings</title>
+<meta name="csrf-param" content="authenticity_token" />
+<meta name="csrf-token" content="FIXTURE_CSRF_TOKEN_123" />
+</head>
+<body>
+    <div class="banner flex-row align-start success"><svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path d="M5 13l4 4L19 7"></path></svg><div class="grow">
+      Logged in!
+</div></div>
+<div class="page-header"><h1>Account Settings</h1></div>
+<div class="page-sections">
+<form action="/identity" accept-charset="UTF-8" method="post"><input type="hidden" name="_method" value="patch" autocomplete="off" /><input type="hidden" name="authenticity_token" value="FORM_TOKEN" autocomplete="off" />
+<section class="section-card">
+<h3>Personal info</h3>
+<div class="grid">
+<div><label for="identity_first_name">First name</label>
+<input required="required" placeholder="Fiona" type="text" value="Fiona" name="identity[first_name]" id="identity_first_name" /></div>
+<div><label for="identity_last_name">Last name</label>
+<input required="required" placeholder="Hackworth" type="text" value="O&#39;Hackworth" name="identity[last_name]" id="identity_last_name" /></div>
+</div>
+<div><label for="identity_phone_number">Phone Number</label>
+<input placeholder="+1 (555) 123-4567" type="text" name="identity[phone_number]" id="identity_phone_number" /></div>
+<div class="form-actions"><input type="submit" name="commit" value="Save" /></div>
+</section>
+</form>
+<section class="section-card"><h3>Email</h3><input type="text" name="primary_email" value="fiona@example.com" readonly="readonly" /></section>
+<form action="/identity" method="post"><input name="identity[developer_mode]" type="hidden" value="0" autocomplete="off" /><input type="checkbox" value="1" name="identity[developer_mode]" id="identity_developer_mode" /></form>
+</div>
+</body>
+</html>

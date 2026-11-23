@@ -1,0 +1,13 @@
+<!DOCTYPE html>
+<html><head><meta name="csrf-token" content="ERR_TOKEN" /></head><body>
+<form action="/identity" method="post">
+<div class="banner danger" aria-live="polite" style="margin-bottom: 1.5rem;">
+  <h4 style="color: var(--error-fg);">1 issue prevented this from being saved:</h4>
+  <ul>
+      <li>Last name can&#39;t be blank</li>
+  </ul>
+</div>
+<input required="required" type="text" value="Fiona" name="identity[first_name]" />
+<input required="required" type="text" value="" name="identity[last_name]" />
+</form>
+</body></html>
