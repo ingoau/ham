@@ -2,13 +2,20 @@ import type { Account } from '@shared/types'
 import { LogOut } from 'lucide-react'
 import { daysUntil, formatDate } from '../util'
 
+function slackLabel(a: Account): string {
+  if (a.slack.session) return 'Signed in'
+  if (a.slack.linked) return 'Linked, not signed in'
+  if (a.slack.linked === false) return 'Not on Slack yet'
+  return 'Not signed in'
+}
+
 export function SessionCard({ account, onSignOut }: { account: Account; onSignOut(): void }) {
   const signedIn = account.status === 'signed-in'
   const days = daysUntil(account.expiresAt)
   return (
     <section className="card" aria-labelledby="session-heading">
       <h2 id="session-heading">Session on this computer</h2>
-      <div className="facts">
+      <div className="facts three">
         <div>
           <div className="label">Status</div>
           <div className="value">{signedIn ? 'Signed in' : 'Signed out'}</div>
@@ -22,13 +29,12 @@ export function SessionCard({ account, onSignOut }: { account: Account; onSignOu
             )}
           </div>
         </div>
+        <div>
+          <div className="label">Slack</div>
+          <div className="value">{slackLabel(account)}</div>
+        </div>
       </div>
-      <div className="card-footer">
-        <span className="note">
-          {signedIn
-            ? 'Signing out ends this session on auth.hackclub.com and removes the account from HAM.'
-            : 'Removing the account deletes its data from this computer.'}
-        </span>
+      <div className="card-footer end">
         <button className="btn btn-danger" onClick={onSignOut}>
           <LogOut size={15} aria-hidden />
           {signedIn ? 'Sign out and remove' : 'Remove account'}

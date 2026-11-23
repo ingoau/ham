@@ -70,13 +70,7 @@ export const ProfileForm = forwardRef<ProfileFormHandle, Props>(function Profile
     setDraft((d) => ({ ...d, [field]: e.target.value }))
 
   return (
-    <form className="card" onSubmit={save} aria-labelledby="profile-heading" style={{ opacity: signedOut ? 0.6 : 1 }}>
-      <div>
-        <h2 id="profile-heading">Profile</h2>
-        <p className="lead">
-          Saved straight to auth.hackclub.com. Apps you've signed in to with this account will see the change.
-        </p>
-      </div>
+    <form className="card" onSubmit={save} aria-label="Profile" style={{ opacity: signedOut ? 0.6 : 1 }}>
       <div className="grid-2">
         <div className="field">
           <label htmlFor="first-name">First name</label>
@@ -112,7 +106,6 @@ export const ProfileForm = forwardRef<ProfileFormHandle, Props>(function Profile
           placeholder="+1 (555) 123-4567"
           autoComplete="tel"
         />
-        <span className="hint">Optional. Include your country code.</span>
       </div>
 
       {account.hasLegalName && (
