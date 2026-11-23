@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
-import { Check, X } from 'lucide-react'
+import { Check, Loader2, X } from 'lucide-react'
 import type { Account } from '@shared/types'
 import { isEmail, parseEmailList } from '../emails'
 
@@ -117,7 +117,20 @@ export function AddAccountsDialog({ mode, accounts, inboxOn, onMode, onClose, on
               ) : findError ? (
                 <p className="error-text">{findError}</p>
               ) : found === null ? (
-                <p className="muted">Searching your inbox…</p>
+                <div className="loading-list" role="status" aria-live="polite">
+                  <span className="loading-head">
+                    <Loader2 size={15} className="spin" aria-hidden />
+                    Searching your inbox for Hack Club Auth emails…
+                  </span>
+                  <ul className="skeleton-list" aria-hidden>
+                    {[68, 52, 74, 46, 60].map((w, i) => (
+                      <li key={i} className="skeleton-row">
+                        <span className="skeleton box" />
+                        <span className="skeleton" style={{ width: `${w}%`, animationDelay: `${i * 0.12}s` }} />
+                      </li>
+                    ))}
+                  </ul>
+                </div>
               ) : found.length === 0 ? (
                 <p className="muted">No Hack Club Auth emails found.</p>
               ) : (

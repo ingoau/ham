@@ -128,8 +128,8 @@ input:focus-visible { outline-offset: 0; }
   padding: 0 12px 0 18px;
   -webkit-app-region: drag;
 }
-/* Leave clear room after the macOS traffic lights (they end at about 72 px). */
-html.platform-darwin .titlebar { padding-left: 98px; }
+/* Clear room after the macOS traffic lights (they end at about 72 px). */
+html.platform-darwin .titlebar { padding-left: 88px; }
 .titlebar > * { -webkit-app-region: no-drag; }
 /* The HAM wordmark: Outfit ExtraBold, tight, ink on light and white on dark. */
 .brand { font-size: 18px; font-weight: 800; letter-spacing: -0.04em; line-height: 1; text-transform: uppercase; color: var(--brand-ink); -webkit-app-region: drag; }
@@ -561,3 +561,12 @@ textarea {
 .pending-head { display: flex; flex-direction: column; gap: 14px; }
 .pending-head h2 { margin: 0; font-size: 18px; display: flex; align-items: center; gap: 8px; }
 .pending-head p { margin: 0; }
+
+/* ---------- loading ---------- */
+.loading-list { display: flex; flex-direction: column; gap: 8px; }
+.loading-head { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+.skeleton-list { list-style: none; margin: 0; padding: 4px; border: 1px solid var(--border); border-radius: 10px; }
+.skeleton-row { display: flex; align-items: center; gap: 10px; height: 36px; padding: 0 8px; }
+.skeleton { display: block; height: 12px; border-radius: 6px; background: linear-gradient(90deg, var(--border) 0%, var(--hover) 50%, var(--border) 100%); background-size: 200% 100%; animation: shimmer 1.3s ease-in-out infinite; }
+.skeleton.box { width: 18px; height: 18px; border-radius: 5px; flex: none; }
+@keyframes shimmer { from { background-position: 100% 0; } to { background-position: -100% 0; } }
