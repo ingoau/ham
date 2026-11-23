@@ -126,6 +126,8 @@ export function templateAccount(a: Account | null): TemplateAccount {
   const slack: TemplateAccount['slack'] = { fields }
   for (const fd of SLACK_PROFILE_FIELDS) slack[fd.key] = a?.slack.profile[fd.key] ?? ''
   for (const fd of SLACK_CUSTOM_FIELDS) fields[fd.key] = a?.slack.profile[fd.key] ?? ''
+  // Keys HAM doesn't list yet (new Slack custom fields) still reach templates.
+  for (const [k, v] of Object.entries(a?.slack.profile ?? {})) if (!(k in slack)) fields[k] = v
   return {
     local: a?.localName ?? '',
     email: a?.email ?? '',
