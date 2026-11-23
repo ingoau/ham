@@ -13,7 +13,8 @@ export function mmss(ms: number): string {
 
 export function attemptLeft(a: Account, now: number): number {
   const started = a.pending?.startedAt ? Date.parse(a.pending.startedAt) : now
-  return started + ATTEMPT_MS - now
+  // The renderer's clock may lag the moment the attempt started by a tick.
+  return Math.min(ATTEMPT_MS, started + ATTEMPT_MS - now)
 }
 
 export type Tone = 'warn' | 'info' | 'ok' | 'violet' | 'neutral' | 'danger'
