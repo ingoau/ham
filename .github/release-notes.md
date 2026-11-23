@@ -4,8 +4,8 @@ Download the file for your computer below.
 | --- | --- |
 | macOS (Apple Silicon) | `HAM-<version>-mac-arm64.dmg` |
 | macOS (Intel) | `HAM-<version>-mac-x64.dmg` |
-| Windows | `HAM-<version>-win-x64.exe` (or `-arm64.exe`) |
-| Linux | `HAM-<version>-linux-x64.AppImage` (or `-arm64.AppImage`) |
+| Windows | `HAM-<version>-win-x64.exe` or `-win-arm64.exe` (`HAM-<version>-win.exe` contains both) |
+| Linux | `HAM-<version>-linux-x86_64.AppImage` or `-linux-arm64.AppImage` |
 
 **These builds aren't code-signed yet**, so your system will warn you the first time:
 
