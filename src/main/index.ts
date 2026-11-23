@@ -2,13 +2,16 @@ import { app, BrowserWindow, ipcMain, nativeTheme, net, protocol, screen, shell 
 import { join, normalize, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { IPC, type InvokeMethod } from '@shared/ipc'
-import type { AppState, Bounds, HamEvent, MenuCommand, ProfileInput, UpdateInfo } from '@shared/types'
+import type { AppState, Bounds, HamEvent, ImapLinkInput, MenuCommand, ProfileInput, Theme, UpdateInfo, ViewSettings } from '@shared/types'
+import { DEFAULT_VIEW } from '@shared/types'
 import { AccountService } from './accounts'
 import { AuthClient } from './auth/client'
 import { MockBackend, seedMockData } from './auth/mock'
 import { DashboardManager } from './dashboard'
+import { InboxService } from './inbox'
 import { isSafeExternalUrl } from './lockdown'
 import { buildMenu } from './menu'
+import { launchSlack } from './slack'
 import { Store } from './store'
 import { checkForUpdate } from './updates'
 
@@ -53,6 +56,7 @@ function serveRenderer() {
 let mainWindow: BrowserWindow | null = null
 let store: Store
 let accounts: AccountService
+let inbox: InboxService
 let dashboard: DashboardManager | null = null
 let update: UpdateInfo | null = null
 
@@ -64,13 +68,27 @@ function state(): AppState {
   return {
     accounts: accounts.list(),
     info: { version: app.getVersion(), platform: process.platform, mock: MOCK },
-    update: update && store.dismissedUpdate !== update.version ? update : null
+    update: update && store.dismissedUpdate !== update.version ? update : null,
+    theme: store.theme,
+    view: store.view,
+    inbox: inbox.status()
   }
 }
 
+// Many changes can land at once (a queue tick, an import): send one update.
+let broadcastQueued = false
 function broadcastState() {
-  dashboard?.prune(new Set(accounts.list().map((a) => a.id)))
-  send({ type: 'state', state: state() })
+  if (broadcastQueued) return
+  broadcastQueued = true
+  setImmediate(() => {
+    broadcastQueued = false
+    dashboard?.prune(new Set(accounts.list().map((a) => a.id)))
+    send({ type: 'state', state: state() })
+  })
+}
+
+function applyTheme(theme: Theme) {
+  nativeTheme.themeSource = theme
 }
 
 function seedIfRequested() {
@@ -82,9 +100,13 @@ function seedIfRequested() {
       email: s.email,
       ...s.profile,
       status: s.signedIn ? 'signed-in' : 'signed-out',
+      fresh: false,
       expiresAt: s.expiresAt,
       addedAt: new Date(now - (3 - i) * 86_400_000).toISOString(),
-      partition: s.partition
+      pending: null,
+      slack: s.slack,
+      partition: s.partition,
+      attemptPath: null
     })
   })
 }
@@ -158,24 +180,72 @@ type Handler = (...args: never[]) => unknown
 function registerIpc() {
   const handlers: Record<InvokeMethod, Handler> = {
     getState: () => state(),
-    'signIn.start': (email: string, accountId?: string) => accounts.start(email, accountId),
-    'signIn.submitEmailCode': (attemptId: string, code: string) => accounts.submitEmailCode(attemptId, code),
-    'signIn.submitSecondFactor': (attemptId: string, kind: 'totp' | 'backup', code: string) =>
-      accounts.submitSecondFactor(attemptId, kind === 'backup' ? 'backup' : 'totp', code),
-    'signIn.resend': (attemptId: string) => accounts.resend(attemptId),
-    'signIn.cancel': (attemptId: string) => accounts.cancel(attemptId),
-    'accounts.refresh': (accountId: string) => accounts.refresh(accountId),
-    'accounts.save': (accountId: string, profile: ProfileInput) =>
-      accounts.save(accountId, {
+    'accounts.add': (emails: string[]) => accounts.add(Array.isArray(emails) ? emails.map(String) : []),
+    'accounts.submitCode': (id: string, code: string) => accounts.submitEmailCode(id, String(code)),
+    'accounts.submitSecondFactor': (id: string, kind: 'totp' | 'backup', code: string) =>
+      accounts.submitSecondFactor(id, kind === 'backup' ? 'backup' : 'totp', String(code)),
+    'accounts.restart': (id: string) => accounts.restart(id),
+    'accounts.signInAgain': (ids: string[]) => accounts.signInAgain(Array.isArray(ids) ? ids : []),
+    'accounts.remove': async (id: string) => {
+      dashboard?.forget(id)
+      return accounts.remove(id)
+    },
+    'accounts.refresh': (id: string) => accounts.refresh(id),
+    'accounts.save': (id: string, profile: ProfileInput) =>
+      accounts.save(id, {
         firstName: String(profile?.firstName ?? ''),
         lastName: String(profile?.lastName ?? ''),
         phone: String(profile?.phone ?? '')
       }),
-    'accounts.signOut': async (accountId: string) => {
-      dashboard?.forget(accountId)
-      return accounts.signOut(accountId)
+    'accounts.launchSlack': async (id: string) => {
+      const account = accounts.list().find((a) => a.id === id)
+      const partition = accounts.partitionOf(id)
+      const backend = accounts.backendFor(id)
+      if (!account || !partition || !backend || account.status !== 'signed-in') return
+      launchSlack({
+        partition,
+        email: account.email,
+        hasSession: await backend.hasSlackSession(),
+        mock: MOCK,
+        onSignedIn: () => {
+          if (MOCK) MockBackend.markSlackSession(partition)
+          accounts.setSlack(id, { linked: true, session: true })
+        },
+        onSignedOut: () => {
+          accounts.markSignedOut(id)
+          send({ type: 'toast', text: `${account.email} is signed out. Sign in again to open Slack.`, kind: 'error' })
+        }
+      })
     },
-    'accounts.move': (accountId: string, toIndex: number) => accounts.move(accountId, Number(toIndex)),
+    'settings.setTheme': (theme: Theme) => {
+      if (theme !== 'system' && theme !== 'light' && theme !== 'dark') return
+      store.theme = theme
+      applyTheme(theme)
+      broadcastState()
+    },
+    'settings.setView': (view: ViewSettings) => {
+      store.view = { ...DEFAULT_VIEW, ...view }
+      broadcastState()
+    },
+    'settings.checkForUpdates': async () => {
+      const result = await checkForUpdate()
+      if (result.status === 'available') {
+        update = result.update
+        store.dismissedUpdate = undefined
+        broadcastState()
+      }
+      return result
+    },
+    'inbox.link': async (input: ImapLinkInput) => {
+      const result = await inbox.link({ email: String(input?.email ?? ''), password: String(input?.password ?? ''), host: String(input?.host ?? '') })
+      broadcastState()
+      return result
+    },
+    'inbox.unlink': async () => {
+      await inbox.unlink()
+      broadcastState()
+    },
+    'inbox.findAddresses': () => inbox.findAddresses(),
     'dashboard.show': (accountId: string, bounds: Bounds) => dashboard?.show(accountId, bounds),
     'dashboard.setBounds': (bounds: Bounds) => dashboard?.setBounds(bounds),
     'dashboard.hide': () => dashboard?.hide(),
@@ -216,22 +286,51 @@ app.whenReady().then(async () => {
   serveRenderer()
   store = new Store()
   seedIfRequested()
-  accounts = new AccountService(store, (partition) => (MOCK ? new MockBackend(partition) : new AuthClient(partition)), broadcastState)
+  applyTheme(store.theme)
+  accounts = new AccountService(
+    store,
+    (partition) => (MOCK ? new MockBackend(partition) : new AuthClient(partition)),
+    broadcastState,
+    (text, kind) => send({ type: 'toast', text, kind })
+  )
+  let wasConnected = false
+  inbox = new InboxService(
+    store,
+    (accountId, code, key) => accounts.onInboxCode(accountId, code, key),
+    () => {
+      const connected = inbox.connected
+      if (connected && !wasConnected) accounts.onInboxConnected()
+      wasConnected = connected
+      broadcastState()
+    },
+    MOCK
+  )
+  accounts.setInbox(inbox)
   accounts.markExpired()
 
   registerIpc()
   buildMenu((command: MenuCommand) => send({ type: 'menu', command }))
   createWindow()
 
+  void inbox.start()
+  void accounts.resume()
   void accounts.refreshAll(true)
   if (!MOCK) {
-    update = await checkForUpdate()
-    if (update) broadcastState()
+    const result = await checkForUpdate()
+    if (result.status === 'available') {
+      update = result.update
+      broadcastState()
+    }
   }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow()
   })
+})
+
+app.on('before-quit', () => {
+  accounts?.stop()
+  void inbox?.stop()
 })
 
 app.on('window-all-closed', () => {

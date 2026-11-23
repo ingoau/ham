@@ -12,11 +12,31 @@ export function buildMenu(send: (command: MenuCommand) => void) {
   }))
 
   const template: MenuItemConstructorOptions[] = [
-    ...(isMac ? [{ role: 'appMenu' as const }] : []),
+    ...(isMac
+      ? [
+          {
+            role: 'appMenu' as const,
+            submenu: [
+              { role: 'about' as const },
+              { type: 'separator' as const },
+              { label: 'Settings…', accelerator: 'Cmd+,', click: () => send({ type: 'open-settings' }) },
+              { type: 'separator' as const },
+              { role: 'services' as const },
+              { type: 'separator' as const },
+              { role: 'hide' as const },
+              { role: 'hideOthers' as const },
+              { role: 'unhide' as const },
+              { type: 'separator' as const },
+              { role: 'quit' as const }
+            ]
+          }
+        ]
+      : []),
     {
       label: 'File',
       submenu: [
-        { label: 'Add Account…', accelerator: 'CmdOrCtrl+N', click: () => send({ type: 'add-account' }) },
+        { label: 'Add Accounts…', accelerator: 'CmdOrCtrl+N', click: () => send({ type: 'add-account' }) },
+        ...(isMac ? [] : [{ label: 'Settings…', accelerator: 'Ctrl+,', click: () => send({ type: 'open-settings' }) }]),
         { type: 'separator' },
         isMac ? { role: 'close' } : { role: 'quit' }
       ]
@@ -33,7 +53,8 @@ export function buildMenu(send: (command: MenuCommand) => void) {
         { role: 'selectAll' },
         { type: 'separator' },
         { label: 'Command Palette…', accelerator: 'CmdOrCtrl+K', click: () => send({ type: 'open-palette' }) },
-        { label: 'Find Account…', accelerator: 'CmdOrCtrl+F', click: () => send({ type: 'open-palette' }) }
+        { label: 'Find Account…', accelerator: 'CmdOrCtrl+F', click: () => send({ type: 'open-palette' }) },
+        { label: 'Select All Accounts', accelerator: 'CmdOrCtrl+Shift+A', click: () => send({ type: 'select-all' }) }
       ]
     },
     {

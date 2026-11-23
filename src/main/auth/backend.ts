@@ -43,6 +43,12 @@ export interface AuthBackend {
   sessionExpiry(): Promise<string | null>
   /** Wipe every cookie and cached file in this account's partition. */
   clearLocalData(): Promise<void>
+  /** The current login attempt's path (e.g. "/login/AbC123"), to persist across restarts. */
+  attemptPath(): string | null
+  /** Pick up a persisted attempt after a restart. Resolves false if it has expired. */
+  resumeAttempt(path: string): Promise<boolean>
+  /** Whether the partition holds Slack's session cookie (`d` on .slack.com). */
+  hasSlackSession(): Promise<boolean>
 }
 
 export type BackendFactory = (partition: string) => AuthBackend

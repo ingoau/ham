@@ -12,7 +12,7 @@ const RATE_LIMITED = 429
 export class AuthClient implements AuthBackend {
   private readonly ses: Session
   private csrf: string | null = null
-  private attemptPath: string | null = null
+  private attemptPathValue: string | null = null
 
   constructor(partition: string) {
     this.ses = session.fromPartition(partition)
@@ -50,7 +50,7 @@ export class AuthClient implements AuthBackend {
 
   async startLogin(email: string): Promise<StartOutcome> {
     return guard(async () => {
-      this.attemptPath = null
+      this.attemptPathValue = null
       const page = await this.get('/login')
       if (page.status === RATE_LIMITED) return { kind: 'rate-limited' }
       if (!this.csrf) return { kind: 'unexpected', message: "Couldn't load the Hack Club sign-in page." }
@@ -73,13 +73,13 @@ export class AuthClient implements AuthBackend {
       case 'signup':
         return { kind: 'no-account' }
       case 'attempt':
-        this.attemptPath = next.attemptPath
+        this.attemptPathValue = next.attemptPath
         await this.get(next.attemptPath) // the code page carries the CSRF token for /verify
         return { kind: 'code' }
       case 'webauthn': {
         // Passkey accounts are sent to WebAuthn first. HAM never uses passkeys:
         // skip straight to an emailed code, as the page's "use email" link does.
-        this.attemptPath = next.attemptPath
+        this.attemptPathValue = next.attemptPath
         await this.get(`${next.attemptPath}/webauthn`)
         const skipped = await this.post(`${next.attemptPath}/webauthn/skip`, {})
         if (skipped.status === RATE_LIMITED) return { kind: 'rate-limited' }
@@ -98,26 +98,26 @@ export class AuthClient implements AuthBackend {
 
   async resend(): Promise<StartOutcome> {
     return guard(async () => {
-      if (!this.attemptPath) return { kind: 'unexpected', message: 'This sign-in has expired. Start again.' }
-      const res = await this.post(`${this.attemptPath}/resend`, {})
+      if (!this.attemptPathValue) return { kind: 'unexpected', message: 'This sign-in has expired. Start again.' }
+      const res = await this.post(`${this.attemptPathValue}/resend`, {})
       if (res.status === RATE_LIMITED) return { kind: 'rate-limited' }
-      await this.get(this.attemptPath)
+      await this.get(this.attemptPathValue)
       return { kind: 'code' }
     }, startError)
   }
 
   async verifyEmailCode(code: string): Promise<VerifyOutcome> {
     return guard(async () => {
-      if (!this.attemptPath) return expired()
-      const res = await this.post(`${this.attemptPath}/verify`, { code: normalizeCode(code) })
+      if (!this.attemptPathValue) return expired()
+      const res = await this.post(`${this.attemptPathValue}/verify`, { code: normalizeCode(code) })
       return this.afterVerify(res)
     }, verifyError)
   }
 
   async verifySecondFactor(kind: 'totp' | 'backup', code: string): Promise<VerifyOutcome> {
     return guard(async () => {
-      if (!this.attemptPath) return expired()
-      const path = kind === 'totp' ? `${this.attemptPath}/totp` : `${this.attemptPath}/backup_code`
+      if (!this.attemptPathValue) return expired()
+      const path = kind === 'totp' ? `${this.attemptPathValue}/totp` : `${this.attemptPathValue}/backup_code`
       if (!this.csrf) await this.get(path)
       const value = kind === 'totp' ? normalizeCode(code) : normalizeBackupCode(code)
       const res = await this.post(path, { code: value })
@@ -221,9 +221,45 @@ export class AuthClient implements AuthBackend {
     return expiry ? new Date(expiry * 1000).toISOString() : null
   }
 
+  attemptPath(): string | null {
+    return this.attemptPathValue
+  }
+
+  async resumeAttempt(path: string): Promise<boolean> {
+    try {
+      const res = await this.get(path)
+      if (res.status >= 500) return false
+      if (res.location) {
+        // Past the email step, the attempt page forwards to the next factor.
+        const next = classifyLoginRedirect(res.location)
+        if (next.kind === 'totp' || next.kind === 'backup' || next.kind === 'webauthn') {
+          await this.get(`${next.attemptPath}/${next.kind === 'totp' ? 'totp' : 'backup_code'}`)
+          this.attemptPathValue = next.attemptPath
+          return true
+        }
+        return false // expired: back to /login
+      }
+      this.attemptPathValue = path
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  async hasSlackSession(): Promise<boolean> {
+    const cookies = await this.ses.cookies.get({ domain: 'slack.com', name: 'd' })
+    return cookies.some((c) => !c.expirationDate || c.expirationDate * 1000 > Date.now())
+  }
+
+  /** The current CSRF token, fetching the home page if there isn't one yet. */
+  async csrfToken(): Promise<string | null> {
+    if (!this.csrf) await this.get('/')
+    return this.csrf
+  }
+
   async clearLocalData(): Promise<void> {
     this.csrf = null
-    this.attemptPath = null
+    this.attemptPathValue = null
     await this.ses.clearStorageData()
     await this.ses.clearCache()
   }

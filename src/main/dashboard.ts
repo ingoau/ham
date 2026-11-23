@@ -7,6 +7,7 @@ import type { Bounds, HamEvent } from '@shared/types'
 import { AUTH_ORIGIN } from './auth/flow'
 import { isNavigationResource, isSafeExternalUrl, judgeNavigation, type NavigationVerdict } from './lockdown'
 import { mockDashboardPage } from './mock-dashboard'
+import { installPermissions } from './permissions'
 
 const HOME = `${AUTH_ORIGIN}/`
 
@@ -228,8 +229,7 @@ export class DashboardManager {
         this.notify(details.webContentsId, verdict, details.url)
       }
     })
-    ses.setPermissionRequestHandler((_wc, permission, callback) => callback(permission === 'clipboard-sanitized-write'))
-    ses.setPermissionCheckHandler((_wc, permission) => permission === 'clipboard-sanitized-write')
+    installPermissions(ses)
   }
 
   private notify(webContentsId: number, verdict: NavigationVerdict, url: string) {

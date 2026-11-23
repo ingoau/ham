@@ -8,18 +8,26 @@ const call = <T>(method: InvokeMethod, ...args: unknown[]): Promise<T> => ipcRen
 
 const api: HamApi = {
   getState: () => call('getState'),
-  signIn: {
-    start: (email, accountId) => call('signIn.start', email, accountId),
-    submitEmailCode: (attemptId, code) => call('signIn.submitEmailCode', attemptId, code),
-    submitSecondFactor: (attemptId, kind, code) => call('signIn.submitSecondFactor', attemptId, kind, code),
-    resend: (attemptId) => call('signIn.resend', attemptId),
-    cancel: (attemptId) => call('signIn.cancel', attemptId)
-  },
   accounts: {
-    refresh: (accountId) => call('accounts.refresh', accountId),
-    save: (accountId, profile) => call('accounts.save', accountId, profile),
-    signOut: (accountId) => call('accounts.signOut', accountId),
-    move: (accountId, toIndex) => call('accounts.move', accountId, toIndex)
+    add: (emails) => call('accounts.add', emails),
+    submitCode: (id, code) => call('accounts.submitCode', id, code),
+    submitSecondFactor: (id, kind, code) => call('accounts.submitSecondFactor', id, kind, code),
+    restart: (id) => call('accounts.restart', id),
+    signInAgain: (ids) => call('accounts.signInAgain', ids),
+    remove: (id) => call('accounts.remove', id),
+    refresh: (id) => call('accounts.refresh', id),
+    save: (id, profile) => call('accounts.save', id, profile),
+    launchSlack: (id) => call('accounts.launchSlack', id)
+  },
+  settings: {
+    setTheme: (theme) => call('settings.setTheme', theme),
+    setView: (view) => call('settings.setView', view),
+    checkForUpdates: () => call('settings.checkForUpdates')
+  },
+  inbox: {
+    link: (input) => call('inbox.link', input),
+    unlink: () => call('inbox.unlink'),
+    findAddresses: () => call('inbox.findAddresses')
   },
   dashboard: {
     show: (accountId, bounds) => call('dashboard.show', accountId, bounds),

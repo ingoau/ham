@@ -7,7 +7,7 @@
 import { app } from 'electron'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { ProfileInput } from '@shared/types'
+import type { ProfileInput, SlackInfo } from '@shared/types'
 import type { AuthBackend, ProfileOutcome, SaveOutcome, StartOutcome, VerifyOutcome } from './backend'
 import type { ParsedProfile } from './pages'
 import { normalizeCode } from './flow'
@@ -21,6 +21,10 @@ interface MockSession {
 interface MockDb {
   profiles: Record<string, ParsedProfile>
   sessions: Record<string, MockSession>
+  /** In-progress sign-ins by partition, so they survive a restart. */
+  attempts?: Record<string, { email: string; stage: 'code' | '2fa' }>
+  /** Partitions with a Slack session. */
+  slack?: Record<string, boolean>
 }
 
 const DAY = 24 * 60 * 60 * 1000
@@ -58,11 +62,20 @@ export class MockBackend implements AuthBackend {
 
   constructor(private readonly partition: string) {}
 
+  private saveAttempt(stage: 'code' | '2fa' | null) {
+    const db = loadDb()
+    db.attempts ??= {}
+    if (stage && this.pendingEmail) db.attempts[this.partition] = { email: this.pendingEmail, stage }
+    else delete db.attempts[this.partition]
+    saveDb(db)
+  }
+
   async startLogin(email: string): Promise<StartOutcome> {
     await wait(500)
     const lower = email.trim().toLowerCase()
     if (/new/.test(lower.split('@')[0])) return { kind: 'no-account' }
     this.pendingEmail = lower
+    this.saveAttempt('code')
     return { kind: 'code' }
   }
 
@@ -76,7 +89,10 @@ export class MockBackend implements AuthBackend {
     if (!this.pendingEmail) return { kind: 'unexpected', message: 'This sign-in has expired. Start again.' }
     if (normalizeCode(code) === '000000') return { kind: 'invalid', message: 'Invalid or expired code, please try again' }
     if (/passkey/.test(this.pendingEmail)) return { kind: 'passkey-only' }
-    if (/^2fa/.test(this.pendingEmail)) return { kind: 'totp' }
+    if (/^2fa/.test(this.pendingEmail)) {
+      this.saveAttempt('2fa')
+      return { kind: 'totp' }
+    }
     return this.complete()
   }
 
@@ -91,6 +107,7 @@ export class MockBackend implements AuthBackend {
     const email = this.pendingEmail!
     db.profiles[email] ??= nameFromEmail(email)
     db.sessions[this.partition] = { email, signedIn: true, expiresAt: new Date(Date.now() + 30 * DAY).toISOString() }
+    if (db.attempts) delete db.attempts[this.partition]
     saveDb(db)
     this.pendingEmail = null
     return { kind: 'done' }
@@ -138,18 +155,42 @@ export class MockBackend implements AuthBackend {
 
   async clearLocalData(): Promise<void> {
     this.pendingEmail = null
+    this.saveAttempt(null)
+  }
+
+  attemptPath(): string | null {
+    return this.pendingEmail ? `/login/mock-${this.partition.replace(/\W/g, '')}` : null
+  }
+
+  async resumeAttempt(): Promise<boolean> {
+    const attempt = loadDb().attempts?.[this.partition]
+    if (!attempt) return false
+    this.pendingEmail = attempt.email
+    return true
+  }
+
+  async hasSlackSession(): Promise<boolean> {
+    return loadDb().slack?.[this.partition] === true
+  }
+
+  /** Demo only: pretend the Slack popup signed in. */
+  static markSlackSession(partition: string) {
+    const db = loadDb()
+    db.slack ??= {}
+    db.slack[partition] = true
+    saveDb(db)
   }
 }
 
 /** Demo accounts for screenshots: two for one person, and one signed out. */
-export function seedMockData(): { partition: string; email: string; profile: ParsedProfile; expiresAt: string; signedIn: boolean }[] {
+export function seedMockData(): { partition: string; email: string; profile: ParsedProfile; expiresAt: string; signedIn: boolean; slack: SlackInfo }[] {
   const now = Date.now()
-  const seed = [
-    { partition: 'persist:acct-demo-1', email: 'fiona@example.com', profile: { firstName: 'Fiona', lastName: 'Hackworth', phone: '+1 (555) 201-4410', hasLegalName: false }, expiresAt: new Date(now + 28 * DAY).toISOString(), signedIn: true },
-    { partition: 'persist:acct-demo-2', email: 'fiona.leads@example.org', profile: { firstName: 'Fiona', lastName: 'Hackworth', phone: '', hasLegalName: true }, expiresAt: new Date(now + 16 * DAY).toISOString(), signedIn: true },
-    { partition: 'persist:acct-demo-3', email: 'sam.rivera@example.net', profile: { firstName: 'Sam', lastName: 'Rivera', phone: '+44 7700 900123', hasLegalName: false }, expiresAt: new Date(now - 21 * DAY).toISOString(), signedIn: false }
+  const seed: { partition: string; email: string; profile: ParsedProfile; expiresAt: string; signedIn: boolean; slack: SlackInfo }[] = [
+    { partition: 'persist:acct-demo-1', email: 'fiona@example.com', profile: { firstName: 'Fiona', lastName: 'Hackworth', phone: '+1 (555) 201-4410', hasLegalName: false }, expiresAt: new Date(now + 28 * DAY).toISOString(), signedIn: true, slack: { linked: true, session: true, profile: { real_name: 'Fiona Hackworth', display_name: 'fiona', title: 'Club leader', pronouns: 'she/her', tz: 'Australia/Sydney' } } },
+    { partition: 'persist:acct-demo-2', email: 'fiona.leads@example.org', profile: { firstName: 'Fiona', lastName: 'Hackworth', phone: '', hasLegalName: true }, expiresAt: new Date(now + 16 * DAY).toISOString(), signedIn: true, slack: { linked: true, session: false, profile: { real_name: 'Fiona Hackworth', display_name: 'fiona-leads' } } },
+    { partition: 'persist:acct-demo-3', email: 'sam.rivera@example.net', profile: { firstName: 'Sam', lastName: 'Rivera', phone: '+44 7700 900123', hasLegalName: false }, expiresAt: new Date(now - 21 * DAY).toISOString(), signedIn: false, slack: { linked: null, session: false, profile: {} } }
   ]
-  const db: MockDb = { profiles: {}, sessions: {} }
+  const db: MockDb = { profiles: {}, sessions: {}, slack: { 'persist:acct-demo-1': true } }
   for (const s of seed) {
     db.profiles[s.email] = s.profile
     db.sessions[s.partition] = { email: s.email, signedIn: s.signedIn, expiresAt: s.expiresAt }

@@ -1,31 +1,49 @@
 import type {
   AppState,
   Bounds,
+  CodeResult,
+  FindResult,
+  HamEvent,
+  ImapLinkInput,
   ProfileInput,
   RefreshResult,
   SaveResult,
-  SignInResult,
-  HamEvent
+  Theme,
+  UpdateInfo,
+  ViewSettings
 } from './types'
+
+export type UpdateCheck = { status: 'available'; update: UpdateInfo } | { status: 'current' } | { status: 'unknown' }
 
 /** The API the preload script exposes to the renderer as `window.ham`. */
 export interface HamApi {
   getState(): Promise<AppState>
 
-  signIn: {
-    /** Start a sign-in. Pass `accountId` to sign an existing, signed-out account in again. */
-    start(email: string, accountId?: string): Promise<SignInResult>
-    submitEmailCode(attemptId: string, code: string): Promise<SignInResult>
-    submitSecondFactor(attemptId: string, kind: 'totp' | 'backup', code: string): Promise<SignInResult>
-    resend(attemptId: string): Promise<SignInResult>
-    cancel(attemptId: string): Promise<void>
-  }
-
   accounts: {
+    /** Add accounts by email. They appear straight away and sign in through the queue. */
+    add(emails: string[]): Promise<{ added: string[]; existing: string[] }>
+    submitCode(accountId: string, code: string): Promise<CodeResult>
+    submitSecondFactor(accountId: string, kind: 'totp' | 'backup', code: string): Promise<CodeResult>
+    /** Resend, try again, or sign a signed-out account in again (same partition). */
+    restart(accountId: string): Promise<void>
+    signInAgain(accountIds: string[]): Promise<void>
+    /** Sign out (if signed in) and remove; cancels a pending sign-in. */
+    remove(accountId: string): Promise<{ serverSignedOut: boolean; removed: boolean }>
     refresh(accountId: string): Promise<RefreshResult>
     save(accountId: string, profile: ProfileInput): Promise<SaveResult>
-    signOut(accountId: string): Promise<{ serverSignedOut: boolean }>
-    move(accountId: string, toIndex: number): Promise<void>
+    launchSlack(accountId: string): Promise<void>
+  }
+
+  settings: {
+    setTheme(theme: Theme): Promise<void>
+    setView(view: ViewSettings): Promise<void>
+    checkForUpdates(): Promise<UpdateCheck>
+  }
+
+  inbox: {
+    link(input: ImapLinkInput): Promise<{ ok: true } | { ok: false; message: string }>
+    unlink(): Promise<void>
+    findAddresses(): Promise<FindResult>
   }
 
   dashboard: {
@@ -53,15 +71,21 @@ export const IPC = {
 /** A flat list of the invokable methods, used to route `ham:invoke` calls. */
 export type InvokeMethod =
   | 'getState'
-  | 'signIn.start'
-  | 'signIn.submitEmailCode'
-  | 'signIn.submitSecondFactor'
-  | 'signIn.resend'
-  | 'signIn.cancel'
+  | 'accounts.add'
+  | 'accounts.submitCode'
+  | 'accounts.submitSecondFactor'
+  | 'accounts.restart'
+  | 'accounts.signInAgain'
+  | 'accounts.remove'
   | 'accounts.refresh'
   | 'accounts.save'
-  | 'accounts.signOut'
-  | 'accounts.move'
+  | 'accounts.launchSlack'
+  | 'settings.setTheme'
+  | 'settings.setView'
+  | 'settings.checkForUpdates'
+  | 'inbox.link'
+  | 'inbox.unlink'
+  | 'inbox.findAddresses'
   | 'dashboard.show'
   | 'dashboard.setBounds'
   | 'dashboard.hide'
