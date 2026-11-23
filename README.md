@@ -1,6 +1,9 @@
-<p align="center"><img src="build/icon.png" width="128" height="128" alt=""></p>
-
-<h1 align="center">HAM</h1>
+<h1 align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="build/wordmark-dark.png">
+    <img src="build/wordmark-light.png" width="196" alt="HAM">
+  </picture>
+</h1>
 
 <p align="center">Hack Club Account Manager: all your Hack Club accounts in one desktop app.</p>
 
@@ -82,6 +85,10 @@ In demo mode:
 2. Tag and push: `git tag v0.2.0 && git push origin v0.2.0`.
 
 The [Release workflow](.github/workflows/release.yml) builds every platform, attaches the installers to a GitHub Release and publishes it. [CI](.github/workflows/ci.yml) typechecks, tests and smoke-tests every push, and packages all three platforms on `main`.
+
+## Brand
+
+The logo is the wordmark "HAM" in [Outfit](https://fonts.google.com/specimen/Outfit) ExtraBold (800) with -0.04em letter-spacing: ink `#1c1917` on light, white on dark. The app icon is the wordmark in white on an ink rounded square, cut down to "H" at 32 px and below. `npm run icons` regenerates every icon and the README wordmark from it. Outfit is also the UI font. It's bundled with the app and licensed under the SIL Open Font License.
 
 ## License
 

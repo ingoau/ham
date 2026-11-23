@@ -19,6 +19,13 @@ if (process.env.HAM_USER_DATA) app.setPath('userData', process.env.HAM_USER_DATA
 else if (MOCK) app.setPath('userData', join(app.getPath('appData'), 'HAM (demo)'))
 
 app.setName('HAM')
+app.setAboutPanelOptions({
+  applicationName: 'HAM',
+  applicationVersion: app.getVersion(),
+  copyright: 'Copyright © 2026 Ingo Wolf. MIT License.',
+  credits: 'Hack Club Account Manager',
+  website: 'https://github.com/ingoau/ham'
+})
 if (process.platform === 'win32') app.setAppUserModelId('com.ingoau.ham')
 
 if (!app.requestSingleInstanceLock()) {

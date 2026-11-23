@@ -67,7 +67,8 @@ export function buildMenu(send: (command: MenuCommand) => void) {
       role: 'help',
       submenu: [
         { label: 'Hack Club Auth', click: () => void shell.openExternal('https://auth.hackclub.com') },
-        { label: 'HAM on GitHub', click: () => void shell.openExternal('https://github.com/ingoau/ham') }
+        { label: 'HAM on GitHub', click: () => void shell.openExternal('https://github.com/ingoau/ham') },
+        ...(isMac ? [] : [{ type: 'separator' as const }, { role: 'about' as const, label: 'About HAM' }])
       ]
     }
   ]
