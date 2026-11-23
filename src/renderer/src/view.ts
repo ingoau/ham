@@ -112,6 +112,8 @@ export interface GroupModel {
   key: string
   open: boolean
   rows: RowModel[]
+  /** The Pinned section, always first. */
+  pinned?: boolean
 }
 
 export interface TemplateValues {
@@ -125,8 +127,11 @@ export function buildView(accounts: Account[], view: ViewSettings, tv: TemplateV
   const subOf = (a: Account) =>
     a.status === 'signed-in' || a.status === 'signed-out' ? lineValue(a, view.line2, tv.line2.get(a.id)) : statusText(a, inboxOn, now)
 
+  const position = new Map(accounts.map((a, i) => [a.id, i]))
   const key = (a: Account): string | number => {
     switch (view.sortBy) {
+      case 'manual':
+        return position.get(a.id) ?? 0
       case 'email':
         return a.email
       case 'sdisplay':
@@ -141,7 +146,7 @@ export function buildView(accounts: Account[], view: ViewSettings, tv: TemplateV
         return `${displayName(a)} ${a.email}`.toLowerCase()
     }
   }
-  const dir = view.sortDir === 'desc' ? -1 : 1
+  const dir = view.sortDir === 'desc' && view.sortBy !== 'manual' ? -1 : 1
   const sorted = [...accounts].sort((x, y) => {
     const kx = key(x)
     const ky = key(y)
@@ -169,12 +174,15 @@ export function buildView(accounts: Account[], view: ViewSettings, tv: TemplateV
     }
   }
 
+  const row = (a: Account): RowModel => ({ account: a, title: titleOf(a), sub: subOf(a) })
+  const pinned = sorted.filter((a) => a.pinned)
+  const others = sorted.filter((a) => !a.pinned)
   const groups: GroupModel[] = []
   if (view.groupBy === 'none') {
-    groups.push({ name: '', key: '', open: true, rows: sorted.map((a) => ({ account: a, title: titleOf(a), sub: subOf(a) })) })
+    groups.push({ name: pinned.length ? 'Accounts' : '', key: '', open: pinned.length ? !view.collapsed['accounts'] : true, rows: others.map(row) })
   } else {
     const byName = new Map<string, GroupModel>()
-    for (const a of sorted) {
+    for (const a of others) {
       const name = groupOf(a)
       let g = byName.get(name)
       if (!g) {
@@ -188,12 +196,14 @@ export function buildView(accounts: Account[], view: ViewSettings, tv: TemplateV
     const rank = (n: string) => GROUP_ORDER[n] ?? 50
     groups.sort((x, y) => rank(x.name) - rank(y.name) || x.name.localeCompare(y.name))
   }
+  if (pinned.length) groups.unshift({ name: 'Pinned', key: 'pinned', open: !view.collapsed['pinned'], rows: pinned.map(row), pinned: true })
   // Visible order for shift-click ranges: skips collapsed groups.
   const order = groups.flatMap((g) => (g.open ? g.rows.map((r) => r.account.id) : []))
-  return { groups, order, showSub: view.line2 !== 'none' }
+  return { groups, order, showSub: view.line2 !== 'none', draggable: view.groupBy === 'none' }
 }
 
 export function sortDirLabel(view: ViewSettings): string {
+  if (view.sortBy === 'manual') return ''
   if (view.sortBy === 'added') return view.sortDir === 'desc' ? 'Newest first' : 'Oldest first'
   if (view.sortBy === 'status') return view.sortDir === 'desc' ? 'Attention last' : 'Attention first'
   return view.sortDir === 'desc' ? 'Z–A' : 'A–Z'

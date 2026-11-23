@@ -17,8 +17,14 @@ const api: HamApi = {
     remove: (id) => call('accounts.remove', id),
     refresh: (id) => call('accounts.refresh', id),
     save: (id, profile) => call('accounts.save', id, profile),
-    launchSlack: (id) => call('accounts.launchSlack', id)
+    launchSlack: (id) => call('accounts.launchSlack', id),
+    setPinned: (ids, pinned) => call('accounts.setPinned', ids, pinned),
+    reorder: (ids) => call('accounts.reorder', ids)
   },
+  ui: {
+    contextMenu: (items) => call('ui.contextMenu', items)
+  },
+  copyText: (text) => call('copyText', text),
   settings: {
     setTheme: (theme) => call('settings.setTheme', theme),
     setView: (view) => call('settings.setView', view),

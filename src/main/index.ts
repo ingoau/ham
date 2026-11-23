@@ -1,8 +1,8 @@
-import { app, BrowserWindow, ipcMain, nativeTheme, net, protocol, screen, shell } from 'electron'
+import { app, BrowserWindow, clipboard, ipcMain, Menu, nativeTheme, net, protocol, screen, shell, type MenuItemConstructorOptions } from 'electron'
 import { join, normalize, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { IPC, type InvokeMethod } from '@shared/ipc'
-import type { AppState, Bounds, HamEvent, ImapLinkInput, MenuCommand, ProfileInput, Theme, UpdateInfo, ViewSettings } from '@shared/types'
+import type { AppState, Bounds, ContextMenuItem, HamEvent, ImapLinkInput, MenuCommand, ProfileInput, Theme, UpdateInfo, ViewSettings } from '@shared/types'
 import { DEFAULT_VIEW } from '@shared/types'
 import { AccountService } from './accounts'
 import { AuthClient } from './auth/client'
@@ -101,6 +101,7 @@ function seedIfRequested() {
       ...s.profile,
       status: s.signedIn ? 'signed-in' : 'signed-out',
       fresh: false,
+      pinned: false,
       expiresAt: s.expiresAt,
       addedAt: new Date(now - (3 - i) * 86_400_000).toISOString(),
       pending: null,
@@ -217,6 +218,27 @@ function registerIpc() {
         }
       })
     },
+    'accounts.setPinned': (ids: string[], pinned: boolean) => accounts.setPinned(Array.isArray(ids) ? ids : [], pinned === true),
+    'accounts.reorder': (ids: string[]) => accounts.reorder(Array.isArray(ids) ? ids.map(String) : []),
+    'ui.contextMenu': (items: ContextMenuItem[]) =>
+      new Promise<string | null>((resolve) => {
+        if (!mainWindow || !Array.isArray(items)) return resolve(null)
+        let chosen: string | null = null
+        const template: MenuItemConstructorOptions[] = items.map((item) =>
+          'id' in item
+            ? {
+                label: String(item.label),
+                enabled: item.enabled !== false,
+                ...(item.checked !== undefined ? { type: 'checkbox' as const, checked: item.checked } : {}),
+                ...(item.accelerator ? { accelerator: item.accelerator, registerAccelerator: false } : {}),
+                click: () => (chosen = item.id)
+              }
+            : { type: 'separator' as const }
+        )
+        // The click handler runs before the menu's close callback.
+        Menu.buildFromTemplate(template).popup({ window: mainWindow, callback: () => setImmediate(() => resolve(chosen)) })
+      }),
+    copyText: (text: string) => clipboard.writeText(String(text)),
     'settings.setTheme': (theme: Theme) => {
       if (theme !== 'system' && theme !== 'light' && theme !== 'dark') return
       store.theme = theme

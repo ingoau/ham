@@ -78,7 +78,7 @@ try {
   await row('Orpheus Dino').locator('.row-check').click({ modifiers: ['Shift'] })
   const picked = await page.locator('.account-row.checked').count()
   if (picked < 2) throw new Error(`range select picked ${picked}`)
-  await page.getByRole('button', { name: 'Bulk edit' }).click()
+  await page.locator('.bulk-panel').waitFor({ timeout: 5_000 })
   await page.locator('#bulk-tpl').click()
   await page.keyboard.press('ControlOrMeta+a')
   await page.keyboard.type('{{ account.first | upper }}')
@@ -91,6 +91,21 @@ try {
   if ((await names()).some((n) => n.startsWith('FIONA'))) throw new Error('undo did not restore')
   await page.getByRole('button', { name: 'Clear selection' }).click()
   step('bulk edits a range of accounts, keeps the selection and undoes')
+
+  // ⌘A selects every account (outside text fields), pin from the bulk pane, Esc clears.
+  await row('Orpheus Dino').locator('.row-main').click()
+  await page.keyboard.press('ControlOrMeta+a')
+  const total = await page.locator('.account-row').count()
+  if ((await page.locator('.account-row.checked').count()) !== total) throw new Error('select all did not pick every account')
+  await page.keyboard.press('Escape')
+  if ((await page.locator('.account-row.checked').count()) !== 0) throw new Error('Escape did not clear the selection')
+  await row('Orpheus Dino').locator('.row-check').click()
+  await page.locator('.bulk-panel').getByRole('button', { name: 'Pin', exact: true }).click()
+  await page.locator('.group-header', { hasText: 'Pinned' }).waitFor({ timeout: 5_000 })
+  const first = await page.locator('.account-row .name').first().textContent()
+  if (first !== 'Orpheus Dino') throw new Error(`pinned account is not first (${first})`)
+  await page.getByRole('button', { name: 'Clear selection' }).click()
+  step('selects all with ⌘A, clears with Esc, pins from the bulk pane')
 
   // View options: group by status, template first line.
   await page.getByRole('button', { name: 'View options' }).click()

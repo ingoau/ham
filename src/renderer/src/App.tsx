@@ -4,14 +4,24 @@ import * as Tabs from '@radix-ui/react-tabs'
 import { Lock, MessageSquare, RotateCw, UserPlus } from 'lucide-react'
 import { Toaster, toast } from 'sonner'
 import { fieldValue, type FieldDef } from '@shared/fields'
-import { isPending, type Account, type AppState, type DashboardNotice, type DashboardState, type MenuCommand, type SaveResult, type ViewSettings } from '@shared/types'
+import {
+  isPending,
+  type Account,
+  type AppState,
+  type ContextMenuItem,
+  type DashboardNotice,
+  type DashboardState,
+  type MenuCommand,
+  type SaveResult,
+  type ViewSettings
+} from '@shared/types'
 import { contextFor, type BulkPlan } from './bulk'
 import { useTemplates } from './templates'
 import { displayName, formatDate } from './util'
 import { buildView, type TemplateValues } from './view'
 import { AddAccountsDialog, type AddMode } from './components/AddAccountsDialog'
 import { Avatar } from './components/Avatar'
-import { BulkEditDialog } from './components/BulkEditDialog'
+import { BulkPanel } from './components/BulkPanel'
 import { CommandPalette, type PaletteAction } from './components/CommandPalette'
 import { DashboardPane } from './components/DashboardPane'
 import { PendingPane } from './components/PendingPane'
@@ -22,7 +32,7 @@ import { Sidebar, type BulkProgress } from './components/Sidebar'
 import { SignOutDialog } from './components/SignOutDialog'
 
 type Tab = 'profile' | 'web'
-type Sheet = null | { kind: 'add'; mode: AddMode } | { kind: 'settings' } | { kind: 'bulk' }
+type Sheet = null | { kind: 'add'; mode: AddMode } | { kind: 'settings' }
 
 const remembered = {
   get: (key: string) => {
@@ -117,7 +127,7 @@ export function App() {
 
   const tv = useViewTemplates(accounts, app?.view)
   const viewModel = useMemo(
-    () => (app ? buildView(accounts, app.view, tv, inboxOn, now) : { groups: [], order: [], showSub: true }),
+    () => (app ? buildView(accounts, app.view, tv, inboxOn, now) : { groups: [], order: [], showSub: true, draggable: false }),
     [app, accounts, tv, inboxOn, now]
   )
 
@@ -137,6 +147,137 @@ export function App() {
     setSelectedId(id)
     setNotice(null)
     setTab('profile')
+    // Like Finder: a plain click on a row replaces the selection.
+    setPicked(new Set())
+    setAnchor(id)
+  }
+
+  /** Shift+arrow: select the range from the anchor to this account. */
+  const extendTo = (id: string) => {
+    const order = viewModel.order
+    const base = anchor && order.includes(anchor) ? anchor : selected?.id ?? id
+    const a = order.indexOf(base)
+    const b = order.indexOf(id)
+    if (a === -1 || b === -1) return
+    setPicked(new Set(order.slice(Math.min(a, b), Math.max(a, b) + 1)))
+    setAnchor(base)
+  }
+
+  /** Accounts an action applies to: the selection, or the open account. */
+  const targets = (): Account[] => (picked.size > 0 ? accounts.filter((a) => picked.has(a.id)) : selected ? [selected] : [])
+
+  const setPinned = (list: Account[], pinned: boolean) => {
+    if (list.length === 0) return
+    const ids = new Set(list.map((a) => a.id))
+    setApp((s) => (s ? { ...s, accounts: s.accounts.map((a) => (ids.has(a.id) ? { ...a, pinned } : a)) } : s))
+    void window.ham.accounts.setPinned([...ids], pinned)
+  }
+
+  /** Save a new manual order (pinned section first) and switch to manual sort. */
+  const reorder = (pinnedIds: string[], restIds: string[], pinChange: { id: string; pinned: boolean } | null) => {
+    const ids = [...pinnedIds, ...restIds]
+    setApp((s) => {
+      if (!s) return s
+      const byId = new Map(s.accounts.map((a) => [a.id, a]))
+      const ordered = ids.map((id) => byId.get(id)).filter((a): a is Account => !!a)
+      const rest = s.accounts.filter((a) => !ids.includes(a.id))
+      const list = [...ordered, ...rest].map((a) => (pinChange && a.id === pinChange.id ? { ...a, pinned: pinChange.pinned } : a))
+      const view = s.view.sortBy === 'manual' ? s.view : { ...s.view, sortBy: 'manual' as const, sortDir: 'asc' as const }
+      return { ...s, accounts: list, view }
+    })
+    if (pinChange) void window.ham.accounts.setPinned([pinChange.id], pinChange.pinned)
+    void window.ham.accounts.reorder(ids)
+    if (app && app.view.sortBy !== 'manual') void window.ham.settings.setView({ ...app.view, sortBy: 'manual', sortDir: 'asc' })
+  }
+
+  /** Move the open account one place in its section (manual sort). */
+  const move = (direction: 'up' | 'down', id = selected?.id) => {
+    if (!id || !viewModel.draggable) return
+    const section = viewModel.groups.find((g) => g.rows.some((r) => r.account.id === id))
+    if (!section) return
+    const ids = section.rows.map((r) => r.account.id)
+    const i = ids.indexOf(id)
+    const j = direction === 'up' ? i - 1 : i + 1
+    if (j < 0 || j >= ids.length) return
+    ;[ids[i], ids[j]] = [ids[j], ids[i]]
+    const pinnedIds = section.pinned ? ids : viewModel.groups.find((g) => g.pinned)?.rows.map((r) => r.account.id) ?? []
+    const restIds = section.pinned ? viewModel.groups.find((g) => !g.pinned)?.rows.map((r) => r.account.id) ?? [] : ids
+    reorder(pinnedIds, restIds, null)
+  }
+
+  const isEditable = (el: Element | null) =>
+    !!el && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || (el as HTMLElement).isContentEditable)
+
+  const showContextMenu = async (account: Account) => {
+    const many = picked.has(account.id) && picked.size > 1
+    const list = many ? accounts.filter((a) => picked.has(a.id)) : [account]
+    const signedIn = account.status === 'signed-in'
+    const pinLabel = list.every((a) => a.pinned) ? (many ? `Unpin ${list.length} Accounts` : 'Unpin') : many ? `Pin ${list.length} Accounts` : 'Pin'
+    const items: ContextMenuItem[] = many
+      ? [
+          { id: 'pin', label: pinLabel, accelerator: 'CmdOrCtrl+Shift+P' },
+          ...(list.some((a) => a.status === 'signed-out') ? [{ id: 'sign-in', label: 'Sign In Again' }] : []),
+          { id: 'copy', label: `Copy ${list.length} Emails` },
+          { type: 'separator' },
+          { id: 'deselect', label: 'Deselect All', accelerator: 'CmdOrCtrl+Shift+A' }
+        ]
+      : [
+          { id: 'open', label: 'Open' },
+          ...(signedIn
+            ? [
+                { id: 'dashboard', label: 'Open Hack Club Auth' },
+                { id: 'slack', label: 'Launch Slack' },
+                { id: 'refresh', label: 'Refresh' }
+              ]
+            : []),
+          ...(account.status === 'signed-out' ? [{ id: 'sign-in', label: 'Sign In Again' }] : []),
+          { type: 'separator' },
+          { id: 'pin', label: pinLabel, accelerator: 'CmdOrCtrl+Shift+P' },
+          ...(viewModel.draggable
+            ? [
+                { id: 'up', label: 'Move Up', accelerator: 'Alt+CmdOrCtrl+Up' },
+                { id: 'down', label: 'Move Down', accelerator: 'Alt+CmdOrCtrl+Down' }
+              ]
+            : []),
+          { id: 'select', label: picked.has(account.id) ? 'Deselect' : 'Select' },
+          { type: 'separator' },
+          { id: 'copy', label: 'Copy Email' },
+          { type: 'separator' },
+          {
+            id: 'remove',
+            label: isPending(account.status) ? (account.fresh ? 'Cancel and Remove' : 'Cancel Sign-in') : signedIn ? 'Sign Out and Remove…' : 'Remove…'
+          }
+        ]
+    const choice = await window.ham.ui.contextMenu(items)
+    switch (choice) {
+      case 'open':
+        return select(account.id)
+      case 'dashboard':
+        select(account.id)
+        return setTab('web')
+      case 'slack':
+        return launchSlack(account)
+      case 'refresh':
+        select(account.id)
+        return void window.ham.accounts.refresh(account.id).then((r) => (r.ok ? toast.success('Profile is up to date') : toast.error('Couldn’t refresh')))
+      case 'sign-in':
+        return void window.ham.accounts.signInAgain(list.filter((a) => a.status === 'signed-out').map((a) => a.id))
+      case 'pin':
+        return setPinned(list, !list.every((a) => a.pinned))
+      case 'up':
+      case 'down':
+        return move(choice, account.id)
+      case 'select':
+        return togglePick(account.id, false)
+      case 'deselect':
+        return setPicked(new Set())
+      case 'copy':
+        await window.ham.copyText(list.map((a) => a.email).join('\n'))
+        return void toast.success(list.length > 1 ? `Copied ${list.length} emails` : 'Copied')
+      case 'remove':
+        if (isPending(account.status)) return void remove(account)
+        return setConfirmSignOut(account)
+    }
   }
 
   const togglePick = (id: string, range: boolean) => {
@@ -162,7 +303,8 @@ export function App() {
   const pending = !!selected && isPending(selected.status)
   const signedOut = status === 'signed-out'
   const signedIn = status === 'signed-in'
-  const showDashboard = tab === 'web' && signedIn
+  const bulkMode = picked.size > 0
+  const showDashboard = tab === 'web' && signedIn && !bulkMode
   const overlayOpen = sheet !== null || confirmSignOut !== null || paletteOpen || slackConfirm !== null
   const mod = app?.info.platform === 'darwin' ? '⌘' : 'Ctrl+'
 
@@ -253,7 +395,6 @@ export function App() {
   }
 
   const applyBulk = (field: FieldDef, plan: BulkPlan) => {
-    setSheet(null)
     void runBulk(
       `Updating ${field.name.toLowerCase()}`,
       field,
@@ -292,6 +433,12 @@ export function App() {
       setPaletteOpen(false)
       return setSheet({ kind: 'settings' })
     }
+    if (command.type === 'select-all') {
+      // In a text field ⌘A selects its text; elsewhere it selects every account.
+      if (isEditable(document.activeElement)) return void document.execCommand('selectAll')
+      if (!overlayOpen) setPicked(new Set(accounts.map((a) => a.id)))
+      return
+    }
     if (overlayOpen) return
     switch (command.type) {
       case 'save':
@@ -309,8 +456,16 @@ export function App() {
         if (target) select(target)
         break
       }
-      case 'select-all':
-        setPicked(new Set(accounts.map((a) => a.id)))
+      case 'deselect-all':
+        setPicked(new Set())
+        break
+      case 'toggle-pin': {
+        const list = targets()
+        setPinned(list, !list.every((a) => a.pinned))
+        break
+      }
+      case 'move':
+        move(command.direction)
         break
       case 'sign-out':
         if (selected) setConfirmSignOut(selected)
@@ -319,15 +474,22 @@ export function App() {
   }
 
   // Esc reverts unsaved profile changes, else clears the selection.
+  // ⌘A / ⇧⌘A also live here so they work wherever the menu accelerator doesn't fire.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === 'a') {
+        if (overlayOpen || isEditable(document.activeElement)) return
+        e.preventDefault()
+        setPicked(e.shiftKey ? new Set() : new Set(accounts.map((a) => a.id)))
+        return
+      }
       if (e.key !== 'Escape' || e.defaultPrevented || overlayOpen) return
       if (formRef.current?.revert()) toast('Changes reverted')
       else if (picked.size > 0) setPicked(new Set())
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [overlayOpen, picked])
+  }, [overlayOpen, picked, accounts])
 
   if (!app) return <div className="app" />
 
@@ -339,6 +501,7 @@ export function App() {
         groups={viewModel.groups}
         showSub={viewModel.showSub}
         order={viewModel.order}
+        draggable={viewModel.draggable}
         accounts={accounts}
         selectedId={selected?.id ?? null}
         picked={picked}
@@ -353,14 +516,11 @@ export function App() {
         onView={setView}
         onSelect={select}
         onTogglePick={togglePick}
+        onExtendTo={extendTo}
+        onReorder={reorder}
+        onContextMenu={(a) => void showContextMenu(a)}
         onSelectAll={selectAll}
         onClearPicked={() => (setPicked(new Set()), setAnchor(null))}
-        onBulkEdit={() => setSheet({ kind: 'bulk' })}
-        onSignInAgain={() => {
-          const ids = pickedAccounts.filter((a) => a.status === 'signed-out').map((a) => a.id)
-          void window.ham.accounts.signInAgain(ids)
-          toast(`Signing in ${ids.length} ${ids.length === 1 ? 'account' : 'accounts'} again`)
-        }}
         onAdd={() => setSheet({ kind: 'add', mode: 'one' })}
         onOpenPalette={() => setPaletteOpen(true)}
         onOpenSettings={() => setSheet({ kind: 'settings' })}
@@ -383,7 +543,22 @@ export function App() {
         )}
 
         <div className={`content-scroll${showDashboard ? ' locked' : ''}`}>
-          {!selected ? (
+          {bulkMode ? (
+            <div className="detail">
+              <BulkPanel
+                picked={pickedAccounts}
+                busy={progress !== null}
+                onClear={() => setPicked(new Set())}
+                onPin={(pinned) => setPinned(pickedAccounts, pinned)}
+                onSignInAgain={() => {
+                  const ids = pickedAccounts.filter((a) => a.status === 'signed-out').map((a) => a.id)
+                  void window.ham.accounts.signInAgain(ids)
+                  toast(`Signing in ${ids.length} ${ids.length === 1 ? 'account' : 'accounts'} again`)
+                }}
+                onApply={applyBulk}
+              />
+            </div>
+          ) : !selected ? (
             <div className="empty">
               <div className="glyph">
                 <UserPlus size={34} strokeWidth={1.8} aria-hidden />
@@ -498,7 +673,6 @@ export function App() {
         />
       )}
       {sheet?.kind === 'settings' && <SettingsDialog app={app} onClose={() => setSheet(null)} />}
-      {sheet?.kind === 'bulk' && <BulkEditDialog picked={pickedAccounts} busy={progress !== null} onClose={() => setSheet(null)} onApply={applyBulk} />}
 
       {confirmSignOut && <SignOutDialog account={confirmSignOut} onCancel={() => setConfirmSignOut(null)} onConfirm={() => remove(confirmSignOut)} />}
 

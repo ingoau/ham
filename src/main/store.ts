@@ -61,6 +61,7 @@ function migrate(raw: Record<string, unknown>): StoreFile {
       hasLegalName: a.hasLegalName ?? false,
       status: a.status ?? 'signed-out',
       fresh: a.fresh ?? false,
+      pinned: a.pinned ?? false,
       expiresAt: a.expiresAt ?? null,
       addedAt: a.addedAt ?? new Date().toISOString(),
       pending: a.pending ?? EMPTY_PENDING,
@@ -121,6 +122,15 @@ export class Store {
     const i = this.data.accounts.findIndex((a) => a.id === account.id)
     if (i === -1) this.data.accounts.push(account)
     else this.data.accounts[i] = account
+    this.flush()
+  }
+
+  /** Put accounts in the given order (manual sort). Ids not listed keep their place at the end. */
+  reorder(ids: string[]) {
+    const byId = new Map(this.data.accounts.map((a) => [a.id, a]))
+    const listed = ids.map((id) => byId.get(id)).filter((a): a is StoredAccount => !!a)
+    const rest = this.data.accounts.filter((a) => !ids.includes(a.id))
+    this.data.accounts = [...listed, ...rest]
     this.flush()
   }
 

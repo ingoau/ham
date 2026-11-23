@@ -23,7 +23,7 @@ const ACTIONS: { id: PaletteAction; label: string; icon: ReactNode; keywords: st
   { id: 'inbox', label: 'Find accounts in my inbox', icon: <Mail size={16} />, keywords: ['import', 'imap', 'search', 'add'] },
   { id: 'settings', label: 'Open Settings', icon: <Settings size={16} />, keywords: ['preferences', 'theme', 'dark', 'light'], shortcut: ',' },
   { id: 'link-inbox', label: 'Link inbox', icon: <Inbox size={16} />, keywords: ['imap', 'email', 'autofill', 'codes'] },
-  { id: 'select-all', label: 'Select all accounts', icon: <ListChecks size={16} />, keywords: ['bulk', 'edit', 'selection'], shortcut: '⇧A' }
+  { id: 'select-all', label: 'Select all accounts', icon: <ListChecks size={16} />, keywords: ['bulk', 'edit', 'selection'], shortcut: 'A' }
 ]
 
 /** ⌘K: jump to any account or run an action. Filtering and keyboard handling come from cmdk. */

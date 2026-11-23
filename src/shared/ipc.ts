@@ -2,6 +2,7 @@ import type {
   AppState,
   Bounds,
   CodeResult,
+  ContextMenuItem,
   FindResult,
   HamEvent,
   ImapLinkInput,
@@ -32,7 +33,17 @@ export interface HamApi {
     refresh(accountId: string): Promise<RefreshResult>
     save(accountId: string, profile: ProfileInput): Promise<SaveResult>
     launchSlack(accountId: string): Promise<void>
+    setPinned(accountIds: string[], pinned: boolean): Promise<void>
+    /** Save the manual order: every account id, top to bottom. */
+    reorder(accountIds: string[]): Promise<void>
   }
+
+  ui: {
+    /** Show a native context menu; resolves with the chosen item's id, or null. */
+    contextMenu(items: ContextMenuItem[]): Promise<string | null>
+  }
+
+  copyText(text: string): Promise<void>
 
   settings: {
     setTheme(theme: Theme): Promise<void>
@@ -80,6 +91,10 @@ export type InvokeMethod =
   | 'accounts.refresh'
   | 'accounts.save'
   | 'accounts.launchSlack'
+  | 'accounts.setPinned'
+  | 'accounts.reorder'
+  | 'ui.contextMenu'
+  | 'copyText'
   | 'settings.setTheme'
   | 'settings.setView'
   | 'settings.checkForUpdates'

@@ -56,6 +56,8 @@ export interface Account {
   status: AccountStatus
   /** True until the account has signed in once; it's shown by email until then. */
   fresh: boolean
+  /** Pinned accounts sit in their own section at the top of the list. */
+  pinned: boolean
   /** ISO date the session cookie expires (or expired). */
   expiresAt: string | null
   addedAt: string
@@ -77,7 +79,7 @@ export interface UpdateInfo {
 export type Theme = 'system' | 'light' | 'dark'
 
 export type LineKind = 'hca' | 'sfull' | 'sdisplay' | 'email' | 'tpl' | 'none'
-export type SortBy = 'line1' | 'hca' | 'sdisplay' | 'email' | 'added' | 'status'
+export type SortBy = 'manual' | 'line1' | 'hca' | 'sdisplay' | 'email' | 'added' | 'status'
 export type GroupBy = 'none' | 'status' | 'domain' | 'slack' | 'tpl'
 
 export interface ViewSettings {
@@ -120,6 +122,11 @@ export interface AppState {
   view: ViewSettings
   inbox: InboxStatus
 }
+
+/** One entry in a native context menu built by the renderer. */
+export type ContextMenuItem =
+  | { type: 'separator' }
+  | { id: string; label: string; enabled?: boolean; checked?: boolean; accelerator?: string }
 
 export type CodeResult = { ok: true } | { ok: false; message: string }
 
@@ -176,6 +183,9 @@ export type MenuCommand =
   | { type: 'select-index'; index: number }
   | { type: 'sign-out' }
   | { type: 'select-all' }
+  | { type: 'deselect-all' }
+  | { type: 'toggle-pin' }
+  | { type: 'move'; direction: 'up' | 'down' }
 
 export type HamEvent =
   | { type: 'state'; state: AppState }

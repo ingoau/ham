@@ -15,6 +15,7 @@ function acct(p: Partial<Account>): Account {
     hasLegalName: false,
     status: 'signed-in',
     fresh: false,
+    pinned: false,
     expiresAt: null,
     addedAt: new Date(NOW - (100 - n) * 1000).toISOString(),
     pending: null,
@@ -54,6 +55,15 @@ describe('buildView', () => {
     const v = buildView([ok, out, bad], view, noTpl, false, NOW)
     expect(v.groups.map((g) => g.name)).toEqual(['Needs attention', 'Signed out', 'Signed in'])
     expect(v.order).toEqual([bad.id, ok.id])
+  })
+  it('puts pinned accounts first and keeps manual order', () => {
+    const a = acct({ firstName: 'Zed' })
+    const b = acct({ firstName: 'Amy', pinned: true })
+    const c = acct({ firstName: 'Bob' })
+    const v = buildView([a, b, c], { ...DEFAULT_VIEW, sortBy: 'manual' }, noTpl, false, NOW)
+    expect(v.groups.map((g) => g.name)).toEqual(['Pinned', 'Accounts'])
+    expect(v.order).toEqual([b.id, a.id, c.id])
+    expect(v.draggable).toBe(true)
   })
   it('labels sort directions', () => {
     expect(sortDirLabel({ ...DEFAULT_VIEW, sortBy: 'added', sortDir: 'desc' })).toBe('Newest first')

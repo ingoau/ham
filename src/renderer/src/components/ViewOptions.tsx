@@ -7,6 +7,7 @@ import { sortDirLabel } from '../view'
 import { TemplateInput } from './TemplateInput'
 
 const SORTS: [SortBy, string][] = [
+  ['manual', 'Manual'],
   ['line1', 'First line'],
   ['hca', 'Hack Club name'],
   ['sdisplay', 'Slack display name'],
@@ -69,9 +70,11 @@ export function ViewOptions({ view, onChange, children }: { view: ViewSettings; 
                 options={SORTS}
                 onChange={(v) => set({ sortBy: v, sortDir: v === 'added' ? 'desc' : 'asc' })}
               />
-              <button className="btn btn-small" onClick={() => set({ sortDir: view.sortDir === 'desc' ? 'asc' : 'desc' })}>
-                {sortDirLabel(view)}
-              </button>
+              {view.sortBy !== 'manual' && (
+                <button className="btn btn-small" onClick={() => set({ sortDir: view.sortDir === 'desc' ? 'asc' : 'desc' })}>
+                  {sortDirLabel(view)}
+                </button>
+              )}
             </div>
           </div>
           <div className="view-row">

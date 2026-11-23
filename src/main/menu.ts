@@ -50,11 +50,12 @@ export function buildMenu(send: (command: MenuCommand) => void) {
         { role: 'cut' },
         { role: 'copy' },
         { role: 'paste' },
-        { role: 'selectAll' },
+        // Selects text in a field, otherwise every account (the renderer decides).
+        { label: 'Select All', accelerator: 'CmdOrCtrl+A', click: () => send({ type: 'select-all' }) },
+        { label: 'Deselect All', accelerator: 'CmdOrCtrl+Shift+A', click: () => send({ type: 'deselect-all' }) },
         { type: 'separator' },
         { label: 'Command Palette…', accelerator: 'CmdOrCtrl+K', click: () => send({ type: 'open-palette' }) },
-        { label: 'Find Account…', accelerator: 'CmdOrCtrl+F', click: () => send({ type: 'open-palette' }) },
-        { label: 'Select All Accounts', accelerator: 'CmdOrCtrl+Shift+A', click: () => send({ type: 'select-all' }) }
+        { label: 'Find Account…', accelerator: 'CmdOrCtrl+F', click: () => send({ type: 'open-palette' }) }
       ]
     },
     {
@@ -67,6 +68,10 @@ export function buildMenu(send: (command: MenuCommand) => void) {
           accelerator: 'CmdOrCtrl+Shift+D',
           click: () => send({ type: 'toggle-tab' })
         },
+        { type: 'separator' },
+        { label: 'Pin / Unpin', accelerator: 'CmdOrCtrl+Shift+P', click: () => send({ type: 'toggle-pin' }) },
+        { label: 'Move Up', accelerator: 'Alt+CmdOrCtrl+Up', click: () => send({ type: 'move', direction: 'up' }) },
+        { label: 'Move Down', accelerator: 'Alt+CmdOrCtrl+Down', click: () => send({ type: 'move', direction: 'down' }) },
         { type: 'separator' },
         ...accountSwitches,
         { type: 'separator' },

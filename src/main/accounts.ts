@@ -206,6 +206,7 @@ export class AccountService {
         hasLegalName: false,
         status: 'queued',
         fresh: true,
+        pinned: false,
         expiresAt: null,
         // Keep the given order for accounts added together.
         addedAt: new Date(now + i).toISOString(),
@@ -494,6 +495,19 @@ export class AccountService {
     const [session, slackId] = await Promise.all([backend.hasSlackSession(), backend.slackId()])
     if (slackId === undefined) return { ...prev, session, linked: session ? true : prev.linked }
     return { ...prev, session, linked: slackId !== null || session, id: slackId ?? undefined }
+  }
+
+  setPinned(ids: string[], pinned: boolean) {
+    for (const id of ids) {
+      const a = this.store.find(id)
+      if (a && a.pinned !== pinned) this.store.upsert({ ...a, pinned })
+    }
+    this.onChange()
+  }
+
+  reorder(ids: string[]) {
+    this.store.reorder(ids)
+    this.onChange()
   }
 
   setSlack(id: string, patch: Partial<SlackInfo>) {
