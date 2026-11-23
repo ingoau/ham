@@ -1,0 +1,19 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <!--
+      Template sandbox. Nunjucks compiles templates with new Function(), so it
+      runs here, in an iframe sandboxed without same-origin access (no preload,
+      no window.ham, no DOM access to the app), instead of the main UI, whose
+      CSP forbids eval.
+    -->
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'none'; script-src 'self' app://ham http://localhost:* 'unsafe-eval'"
+    />
+    <script src="nunjucks.min.js"></script>
+    <script src="sandbox.js"></script>
+  </head>
+  <body></body>
+</html>
