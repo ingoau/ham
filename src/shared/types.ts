@@ -103,9 +103,9 @@ export const DEFAULT_VIEW: ViewSettings = {
   sortBy: 'line1',
   sortDir: 'asc',
   groupBy: 'none',
-  groupTpl: '{{ account.title | default("No title") }}',
+  groupTpl: '{{ account.slack.title | default("No title") }}',
   line1: 'best',
-  line1Tpl: '{{ account.first }} {{ account.last }}',
+  line1Tpl: '{{ account.hca.first }} {{ account.hca.last }}',
   line2: 'email',
   line2Tpl: '{{ account.email }}',
   collapsed: {}
