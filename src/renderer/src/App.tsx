@@ -3,8 +3,9 @@ import * as Tabs from '@radix-ui/react-tabs'
 import { Lock, RotateCw, UserPlus } from 'lucide-react'
 import { Toaster, toast } from 'sonner'
 import type { Account, AppState, DashboardNotice, DashboardState, MenuCommand, SaveResult } from '@shared/types'
-import { displayName, matches } from './util'
+import { displayName } from './util'
 import { AddAccountSheet } from './components/AddAccountSheet'
+import { CommandPalette, type PaletteAction } from './components/CommandPalette'
 import { Avatar } from './components/Avatar'
 import { DashboardPane } from './components/DashboardPane'
 import { ProfileForm, type ProfileFormHandle } from './components/ProfileForm'
@@ -36,13 +37,12 @@ export function App() {
   const [app, setApp] = useState<AppState | null>(null)
   const [selectedId, setSelectedId] = useState<string | null>(() => remembered.get('selected'))
   const [tab, setTab] = useState<Tab>('profile')
-  const [query, setQuery] = useState('')
   const [sheet, setSheet] = useState<null | { reauth?: { accountId: string; email: string } }>(null)
   const [confirmSignOut, setConfirmSignOut] = useState<Account | null>(null)
   const [refreshing, setRefreshing] = useState(false)
   const [dashState, setDashState] = useState<DashboardState | null>(null)
   const [notice, setNotice] = useState<DashboardNotice | null>(null)
-  const searchRef = useRef<HTMLInputElement>(null)
+  const [paletteOpen, setPaletteOpen] = useState(false)
   const formRef = useRef<ProfileFormHandle>(null)
   const menuRef = useRef<(c: MenuCommand) => void>(() => {})
 
@@ -73,7 +73,8 @@ export function App() {
 
   const signedOut = selected?.status === 'signed-out'
   const showDashboard = tab === 'web' && !!selected && !signedOut
-  const overlayOpen = sheet !== null || confirmSignOut !== null
+  const overlayOpen = sheet !== null || confirmSignOut !== null || paletteOpen
+  const mod = app?.info.platform === 'darwin' ? '⌘' : 'Ctrl+'
 
   const refresh = async () => {
     if (!selected || refreshing) return
@@ -108,14 +109,15 @@ export function App() {
 
   // Menu commands and shortcuts. Kept in a ref so the listener sees fresh state.
   menuRef.current = (command: MenuCommand) => {
+    if (command.type === 'open-palette') {
+      if (sheet === null && confirmSignOut === null) setPaletteOpen((o) => !o)
+      return
+    }
     if (overlayOpen && command.type !== 'add-account') return
     switch (command.type) {
       case 'add-account':
+        setPaletteOpen(false)
         openAdd()
-        break
-      case 'focus-search':
-        searchRef.current?.focus()
-        searchRef.current?.select()
         break
       case 'save':
         if (!showDashboard) formRef.current?.save()
@@ -128,7 +130,7 @@ export function App() {
         if (selected && !signedOut) setTab((t) => (t === 'profile' ? 'web' : 'profile'))
         break
       case 'select-index': {
-        const target = accounts.filter((a) => matches(a, query))[command.index]
+        const target = accounts[command.index]
         if (target) select(target.id)
         break
       }
@@ -142,7 +144,6 @@ export function App() {
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== 'Escape' || e.defaultPrevented || overlayOpen) return
-      if ((e.target as HTMLElement | null)?.id === 'search') return
       if (formRef.current?.revert()) toast('Changes reverted')
     }
     window.addEventListener('keydown', onKey)
@@ -154,13 +155,12 @@ export function App() {
   return (
     <div className="app">
       <Sidebar
-        ref={searchRef}
         accounts={accounts}
         selectedId={selected?.id ?? null}
-        query={query}
-        onQuery={setQuery}
+        mod={mod}
         onSelect={select}
         onAdd={openAdd}
+        onOpenPalette={() => setPaletteOpen(true)}
       />
 
       <main className="content">
@@ -277,6 +277,40 @@ export function App() {
           }}
         />
       )}
+
+      <CommandPalette
+        open={paletteOpen}
+        onOpenChange={setPaletteOpen}
+        accounts={accounts}
+        selected={selected}
+        tab={showDashboard ? 'web' : 'profile'}
+        mod={mod}
+        onSelectAccount={select}
+        onAction={(action: PaletteAction) => {
+          if (!selected && action !== 'add') return
+          switch (action) {
+            case 'add':
+              openAdd()
+              break
+            case 'refresh':
+              void refresh()
+              break
+            case 'toggle-tab':
+              setTab(showDashboard ? 'profile' : 'web')
+              break
+            case 'pop-out':
+              void window.ham.dashboard.popOut(selected!.id)
+              setTab('profile')
+              break
+            case 'sign-in-again':
+              setSheet({ reauth: { accountId: selected!.id, email: selected!.email } })
+              break
+            case 'sign-out':
+              setConfirmSignOut(selected)
+              break
+          }
+        }}
+      />
 
       {confirmSignOut && (
         <SignOutDialog account={confirmSignOut} onCancel={() => setConfirmSignOut(null)} onConfirm={() => signOut(confirmSignOut)} />

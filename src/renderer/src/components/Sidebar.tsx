@@ -1,29 +1,25 @@
-import { forwardRef, type KeyboardEvent } from 'react'
-import type { Account } from '@shared/types'
+import type { KeyboardEvent } from 'react'
 import { Plus, Search } from 'lucide-react'
-import { displayName, matches } from '../util'
+import type { Account } from '@shared/types'
+import { displayName } from '../util'
 import { Avatar } from './Avatar'
 
 interface Props {
   accounts: Account[]
   selectedId: string | null
-  query: string
-  onQuery(q: string): void
+  /** The shortcut modifier shown in hints: "⌘" on macOS, "Ctrl+" elsewhere. */
+  mod: string
   onSelect(id: string): void
   onAdd(): void
+  onOpenPalette(): void
 }
 
-export const Sidebar = forwardRef<HTMLInputElement, Props>(function Sidebar(
-  { accounts, selectedId, query, onQuery, onSelect, onAdd },
-  searchRef
-) {
-  const shown = accounts.filter((a) => matches(a, query))
-
+export function Sidebar({ accounts, selectedId, mod, onSelect, onAdd, onOpenPalette }: Props) {
   const onListKey = (e: KeyboardEvent<HTMLElement>) => {
     if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return
     e.preventDefault()
-    const i = shown.findIndex((a) => a.id === selectedId)
-    const next = shown[e.key === 'ArrowDown' ? Math.min(shown.length - 1, i + 1) : Math.max(0, i - 1)]
+    const i = accounts.findIndex((a) => a.id === selectedId)
+    const next = accounts[e.key === 'ArrowDown' ? Math.min(accounts.length - 1, i + 1) : Math.max(0, i - 1)]
     if (next) {
       onSelect(next.id)
       document.getElementById(`account-${next.id}`)?.focus()
@@ -34,32 +30,17 @@ export const Sidebar = forwardRef<HTMLInputElement, Props>(function Sidebar(
     <aside className="sidebar">
       <div className="titlebar">
         <span className="brand">HAM</span>
-        <div className="search">
-          <label htmlFor="search" className="visually-hidden">
-            Search accounts
-          </label>
-          <Search size={13} aria-hidden />
-          <input
-            id="search"
-            ref={searchRef}
-            type="search"
-            placeholder="Search"
-            value={query}
-            onChange={(e) => onQuery(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Escape') onQuery('')
-              if (e.key === 'ArrowDown' && shown[0]) {
-                e.preventDefault()
-                onSelect(shown[0].id)
-                document.getElementById(`account-${shown[0].id}`)?.focus()
-              }
-            }}
-          />
-        </div>
+      </div>
+      <div className="search-row">
+        <button className="search-button" onClick={onOpenPalette} aria-keyshortcuts={mod === '⌘' ? 'Meta+K' : 'Control+K'}>
+          <Search size={14} aria-hidden />
+          <span className="search-label">Search accounts and actions</span>
+          <kbd>{mod}K</kbd>
+        </button>
       </div>
 
       <nav className="account-list" aria-label="Accounts" onKeyDown={onListKey}>
-        {shown.map((a) => (
+        {accounts.map((a) => (
           <button
             key={a.id}
             id={`account-${a.id}`}
@@ -75,7 +56,6 @@ export const Sidebar = forwardRef<HTMLInputElement, Props>(function Sidebar(
             {a.status === 'signed-out' && <span className="pill-warn">Signed out</span>}
           </button>
         ))}
-        {accounts.length > 0 && shown.length === 0 && <p className="list-empty">No accounts match “{query}”.</p>}
       </nav>
 
       <div className="sidebar-footer">
@@ -86,4 +66,4 @@ export const Sidebar = forwardRef<HTMLInputElement, Props>(function Sidebar(
       </div>
     </aside>
   )
-})
+}

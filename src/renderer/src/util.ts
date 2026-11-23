@@ -30,9 +30,3 @@ export function daysUntil(iso: string | null): number | null {
   const ms = Date.parse(iso) - Date.now()
   return Number.isNaN(ms) ? null : Math.ceil(ms / 86_400_000)
 }
-
-export function matches(a: Account, query: string): boolean {
-  const q = query.trim().toLowerCase()
-  if (!q) return true
-  return `${a.firstName} ${a.lastName} ${a.email}`.toLowerCase().includes(q)
-}

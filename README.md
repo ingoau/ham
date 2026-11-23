@@ -14,7 +14,8 @@ HAM signs in to [Hack Club Auth](https://auth.hackclub.com) with your email, kee
 ## Features
 
 - **Add accounts by email.** HAM sends you a code, then asks for an authenticator or backup code if the account uses two-factor. Passkeys are always skipped.
-- **Every account in one list**, with search, and a "Signed out" badge when a session has ended.
+- **Every account in one list**, with a "Signed out" badge when a session has ended.
+- **A command palette** (Cmd+K) to jump to any account or run an action.
 - **Edit name and phone number.** Changes save straight to auth.hackclub.com.
 - **The Hack Club Auth dashboard, embedded** for each account and already signed in, or popped out into its own window. It's locked to auth.hackclub.com: it can't be used to sign in to other apps, and other links open in your browser.
 - **Light and dark** themes that follow your system, plus keyboard shortcuts.
@@ -39,7 +40,7 @@ Cmd on macOS, Ctrl on Windows and Linux.
 | Shortcut | Action |
 | --- | --- |
 | Cmd+N | Add account |
-| Cmd+F | Search accounts |
+| Cmd+K or Cmd+F | Command palette: find an account or run an action |
 | Cmd+S | Save profile |
 | Esc | Revert unsaved changes, or close a dialog |
 | Cmd+R | Refresh the account (or reload the dashboard) |

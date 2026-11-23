@@ -32,7 +32,8 @@ export function buildMenu(send: (command: MenuCommand) => void) {
         { role: 'paste' },
         { role: 'selectAll' },
         { type: 'separator' },
-        { label: 'Find Account', accelerator: 'CmdOrCtrl+F', click: () => send({ type: 'focus-search' }) }
+        { label: 'Command Palette…', accelerator: 'CmdOrCtrl+K', click: () => send({ type: 'open-palette' }) },
+        { label: 'Find Account…', accelerator: 'CmdOrCtrl+F', click: () => send({ type: 'open-palette' }) }
       ]
     },
     {

@@ -90,7 +90,7 @@ export type DashboardNotice =
 /** Commands from the app menu (and its keyboard shortcuts). */
 export type MenuCommand =
   | { type: 'add-account' }
-  | { type: 'focus-search' }
+  | { type: 'open-palette' }
   | { type: 'save' }
   | { type: 'refresh' }
   | { type: 'toggle-tab' }

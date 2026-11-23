@@ -91,9 +91,10 @@ async function theme(app, source) {
   await shot(app, 'sign-out-confirm')
   await page.getByRole('button', { name: 'Cancel' }).click()
 
-  await page.getByLabel('Search accounts').fill('sam')
-  await shot(app, 'search')
-  await page.getByLabel('Search accounts').fill('')
+  await page.locator('.search-button').click()
+  await page.locator('.cmdk-input').fill('fiona')
+  await shot(app, 'command-palette')
+  await page.keyboard.press('Escape')
 
   await theme(app, 'dark')
   await page.locator('.account-row').first().click()
