@@ -4,7 +4,7 @@
 // account has its own session partition, and the in-progress attempt is
 // persisted so a restart within the 15-minute window picks it up again.
 import { randomUUID } from 'node:crypto'
-import type { Account, AccountGroup, CodeResult, PendingInfo, ProfileInput, RefreshResult, SaveResult, SlackInfo } from '@shared/types'
+import { TAG_COLORS, type Account, type AccountGroup, type AccountTag, type CodeResult, type PendingInfo, type ProfileInput, type RefreshResult, type SaveResult, type SlackInfo, type TagColor } from '@shared/types'
 import type { AuthBackend, BackendFactory, StartOutcome, VerifyOutcome } from './auth/backend'
 import { isValidEmail } from './auth/flow'
 import { CHECK_LIMIT, LOGIN_LIMIT, LOGIN_PER_EMAIL_LIMIT, SlidingWindow } from './limits'
@@ -209,6 +209,7 @@ export class AccountService {
         fresh: true,
         pinned: false,
         groupId: null,
+        tagIds: [],
         expiresAt: null,
         // Keep the given order for accounts added together.
         addedAt: new Date(now + i).toISOString(),
@@ -561,6 +562,50 @@ export class AccountService {
     const byId = new Map(this.store.groups.map((g) => [g.id, g]))
     const listed = ids.map((id) => byId.get(id)).filter((g): g is AccountGroup => !!g)
     this.store.groups = [...listed, ...this.store.groups.filter((g) => !ids.includes(g.id))]
+    this.onChange()
+  }
+
+  get tags(): AccountTag[] {
+    return this.store.tags
+  }
+
+  /** Add a tag to accounts, or take it off them. */
+  setTag(ids: string[], tagId: string, on: boolean) {
+    if (!this.store.tags.some((t) => t.id === tagId)) return
+    for (const id of ids) {
+      const a = this.store.find(id)
+      if (!a || a.tagIds.includes(tagId) === on) continue
+      this.store.upsert({ ...a, tagIds: on ? [...a.tagIds, tagId] : a.tagIds.filter((t) => t !== tagId) })
+    }
+    this.onChange()
+  }
+
+  createTag(name: string, color: TagColor, ids: string[]): string | null {
+    const clean = name.trim().slice(0, 40)
+    if (!clean) return null
+    const id = randomUUID()
+    this.store.tags = [...this.store.tags, { id, name: clean, color: TAG_COLORS.includes(color) ? color : 'gray' }]
+    if (ids.length) this.setTag(ids, id, true)
+    else this.onChange()
+    return id
+  }
+
+  updateTag(id: string, patch: { name?: string; color?: TagColor }) {
+    const name = patch.name?.trim().slice(0, 40)
+    const color = patch.color && TAG_COLORS.includes(patch.color) ? patch.color : undefined
+    this.store.tags = this.store.tags.map((t) => (t.id === id ? { ...t, ...(name ? { name } : {}), ...(color ? { color } : {}) } : t))
+    this.onChange()
+  }
+
+  deleteTag(id: string) {
+    this.store.tags = this.store.tags.filter((t) => t.id !== id)
+    this.onChange()
+  }
+
+  reorderTags(ids: string[]) {
+    const byId = new Map(this.store.tags.map((t) => [t.id, t]))
+    const listed = ids.map((id) => byId.get(id)).filter((t): t is AccountTag => !!t)
+    this.store.tags = [...listed, ...this.store.tags.filter((t) => !ids.includes(t.id))]
     this.onChange()
   }
 

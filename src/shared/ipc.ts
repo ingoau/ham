@@ -9,6 +9,7 @@ import type {
   ProfileInput,
   RefreshResult,
   SaveResult,
+  TagColor,
   Theme,
   UpdateInfo,
   ViewSettings
@@ -40,6 +41,17 @@ export interface HamApi {
     reorder(accountIds: string[]): Promise<void>
     /** Move accounts into a group, or out of one with null. Also unpins them. */
     setGroup(accountIds: string[], groupId: string | null): Promise<void>
+    /** Add a tag to accounts (on) or take it off them. */
+    setTag(accountIds: string[], tagId: string, on: boolean): Promise<void>
+  }
+
+  tags: {
+    /** Make a tag (optionally adding it to accounts); resolves with its id. */
+    create(name: string, color: TagColor, accountIds: string[]): Promise<string | null>
+    update(tagId: string, patch: { name?: string; color?: TagColor }): Promise<void>
+    /** Delete a tag; it comes off every account. */
+    remove(tagId: string): Promise<void>
+    reorder(tagIds: string[]): Promise<void>
   }
 
   groups: {
@@ -112,6 +124,11 @@ export type InvokeMethod =
   | 'groups.rename'
   | 'groups.remove'
   | 'groups.reorder'
+  | 'accounts.setTag'
+  | 'tags.create'
+  | 'tags.update'
+  | 'tags.remove'
+  | 'tags.reorder'
   | 'ui.contextMenu'
   | 'copyText'
   | 'settings.setTheme'

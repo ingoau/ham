@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { DEFAULT_VIEW, type Account } from '../src/shared/types'
-import { badgeFor, buildView, sortDirLabel, statusText } from '../src/renderer/src/view'
+import { DEFAULT_VIEW, NO_TAGS, type Account, type AccountFilter } from '../src/shared/types'
+import { badgeFor, buildView, matchesFilter, sortDirLabel, statusText } from '../src/renderer/src/view'
 
 const NOW = Date.parse('2026-11-23T12:00:00Z')
 let n = 0
@@ -18,6 +18,7 @@ function acct(p: Partial<Account>): Account {
     fresh: false,
     pinned: false,
     groupId: null,
+    tagIds: [],
     expiresAt: null,
     addedAt: new Date(NOW - (100 - n) * 1000).toISOString(),
     pending: null,
@@ -107,6 +108,40 @@ describe('buildView', () => {
       [`Amy Hack${b.id.slice(1)}`, b.email],
       ['Main', `Zed Hack${a.id.slice(1)}`]
     ])
+  })
+  it('filters by tags and status, and stops manual dragging while filtered', () => {
+    const a = acct({ firstName: 'Amy', tagIds: ['t1', 't2'] })
+    const b = acct({ firstName: 'Bob', tagIds: ['t1'], status: 'signed-out' })
+    const c = acct({ firstName: 'Cat', tagIds: ['gone'] })
+    const groups = [{ id: 'g1', name: 'Empty' }]
+    const known = new Set(['t1', 't2'])
+    const view = (filter: Partial<AccountFilter>) => ({ ...DEFAULT_VIEW, sortBy: 'manual' as const, filter: { ...DEFAULT_VIEW.filter, ...filter } })
+    const plain = buildView([a, b, c], view({}), noTpl, false, NOW, groups, known)
+    expect(plain.filtering).toBe(false)
+    expect(plain.draggable).toBe(true)
+    const v = buildView([a, b, c], view({ tags: ['t1'] }), noTpl, false, NOW, groups, known)
+    expect(v.visible).toEqual([a.id, b.id])
+    expect(v.total).toBe(3)
+    expect(v.filtering).toBe(true)
+    expect(v.draggable).toBe(false)
+    expect(buildView([a, b, c], view({ tags: ['t1'], status: ['signed-out'] }), noTpl, false, NOW, groups, known).visible).toEqual([b.id])
+    // A deleted tag left in the filter doesn't count as filtering.
+    const stale = buildView([a, b, c], view({ tags: ['gone'] }), noTpl, false, NOW, groups, known)
+    expect([stale.filtering, stale.draggable, stale.visible.length]).toEqual([false, true, 3])
+  })
+  it('matches any or all tags, and accounts with no (known) tags', () => {
+    const known = new Set(['t1', 't2'])
+    const f = (p: Partial<AccountFilter>): AccountFilter => ({ tags: [], tagMode: 'any', status: [], ...p })
+    const both = acct({ tagIds: ['t1', 't2'] })
+    const one = acct({ tagIds: ['t1'] })
+    const stale = acct({ tagIds: ['gone'] })
+    expect([both, one, stale].map((x) => matchesFilter(x, f({ tags: ['t1', 't2'] }), known))).toEqual([true, true, false])
+    expect([both, one, stale].map((x) => matchesFilter(x, f({ tags: ['t1', 't2'], tagMode: 'all' }), known))).toEqual([true, false, false])
+    expect([both, one, stale].map((x) => matchesFilter(x, f({ tags: [NO_TAGS] }), known))).toEqual([false, false, true])
+    expect([both, one, stale].map((x) => matchesFilter(x, f({ tags: [NO_TAGS, 't2'] }), known))).toEqual([true, false, true])
+    // A filter on a deleted tag alone shows everything rather than nothing.
+    expect(matchesFilter(one, f({ tags: ['gone'] }), known)).toBe(true)
+    expect(matchesFilter(one, f({ status: ['attention'] }), known)).toBe(false)
   })
   it('labels sort directions', () => {
     expect(sortDirLabel({ ...DEFAULT_VIEW, sortBy: 'added', sortDir: 'desc' })).toBe('Newest first')

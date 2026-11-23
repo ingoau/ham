@@ -2,8 +2,7 @@ import { app, BrowserWindow, clipboard, ipcMain, Menu, nativeTheme, net, protoco
 import { join, normalize, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { IPC, type InvokeMethod } from '@shared/ipc'
-import type { AppState, Bounds, ContextMenuItem, FindResult, HamEvent, ImapLinkInput, MenuCommand, ProfileInput, Theme, UpdateInfo, ViewSettings } from '@shared/types'
-import { DEFAULT_VIEW } from '@shared/types'
+import type { AppState, Bounds, ContextMenuItem, FindResult, HamEvent, ImapLinkInput, MenuCommand, ProfileInput, TagColor, Theme, UpdateInfo, ViewSettings } from '@shared/types'
 import { AccountService } from './accounts'
 import { AuthClient } from './auth/client'
 import { hcaAccountExists, mockAccountExists } from './auth/check'
@@ -14,7 +13,7 @@ import { checkAccounts } from './inbox-match'
 import { isSafeExternalUrl } from './lockdown'
 import { buildMenu } from './menu'
 import { launchSlack } from './slack'
-import { Store } from './store'
+import { Store, withDefaults } from './store'
 import { checkForUpdate } from './updates'
 
 const MOCK = process.env.HAM_MOCK === '1'
@@ -70,6 +69,7 @@ function state(): AppState {
   return {
     accounts: accounts.list(),
     groups: accounts.groups,
+    tags: accounts.tags,
     info: { version: app.getVersion(), platform: process.platform, mock: MOCK },
     update: update && store.dismissedUpdate !== update.version ? update : null,
     theme: store.theme,
@@ -107,6 +107,7 @@ function seedIfRequested() {
       fresh: false,
       pinned: false,
       groupId: null,
+      tagIds: [],
       expiresAt: s.expiresAt,
       addedAt: new Date(now - (3 - i) * 86_400_000).toISOString(),
       pending: null,
@@ -232,6 +233,17 @@ function registerIpc() {
     'groups.rename': (id: string, name: string) => accounts.renameGroup(String(id), String(name ?? '')),
     'groups.remove': (id: string) => accounts.deleteGroup(String(id)),
     'groups.reorder': (ids: string[]) => accounts.reorderGroups(Array.isArray(ids) ? ids.map(String) : []),
+    'accounts.setTag': (ids: string[], tagId: string, on: boolean) =>
+      accounts.setTag(Array.isArray(ids) ? ids.map(String) : [], String(tagId), on === true),
+    'tags.create': (name: string, color: TagColor, ids: string[]) =>
+      accounts.createTag(String(name ?? ''), String(color) as TagColor, Array.isArray(ids) ? ids.map(String) : []),
+    'tags.update': (id: string, patch: { name?: unknown; color?: unknown }) =>
+      accounts.updateTag(String(id), {
+        name: typeof patch?.name === 'string' ? patch.name : undefined,
+        color: typeof patch?.color === 'string' ? (patch.color as TagColor) : undefined
+      }),
+    'tags.remove': (id: string) => accounts.deleteTag(String(id)),
+    'tags.reorder': (ids: string[]) => accounts.reorderTags(Array.isArray(ids) ? ids.map(String) : []),
     'ui.contextMenu': (items: ContextMenuItem[]) =>
       new Promise<string | null>((resolve) => {
         if (!mainWindow || !Array.isArray(items)) return resolve(null)
@@ -262,7 +274,7 @@ function registerIpc() {
       broadcastState()
     },
     'settings.setView': (view: ViewSettings) => {
-      store.view = { ...DEFAULT_VIEW, ...view }
+      store.view = store.pruneFilter(withDefaults(view ?? {}))
       broadcastState()
     },
     'settings.checkForUpdates': async () => {

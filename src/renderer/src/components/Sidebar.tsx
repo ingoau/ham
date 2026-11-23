@@ -10,10 +10,12 @@ import {
 import { restrictToVerticalAxis } from '@dnd-kit/modifiers'
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
-import { Check, ChevronDown, Pin, Plus, Search, Settings, SlidersHorizontal, X } from 'lucide-react'
-import type { Account, ViewSettings } from '@shared/types'
-import { badgeFor, type GroupModel, type RowModel } from '../view'
+import { Check, ChevronDown, ListFilter, Pin, Plus, Search, Settings, SlidersHorizontal, X } from 'lucide-react'
+import { EMPTY_FILTER, type Account, type AccountFilter, type AccountTag, type ViewSettings } from '@shared/types'
+import { badgeFor, filterCount as countFilters, type GroupModel, type RowModel } from '../view'
 import { Avatar } from './Avatar'
+import { FilterMenu } from './FilterMenu'
+import { TagDots } from './Tags'
 import { ViewOptions } from './ViewOptions'
 
 /** A drop into another section: pin it, or move it into a group (null: ungrouped). */
@@ -30,8 +32,17 @@ interface Props {
   groups: GroupModel[]
   showSub: boolean
   order: string[]
+  /** Ids the filter lets through. */
+  visible: string[]
+  filtering: boolean
   draggable: boolean
   accounts: Account[]
+  tags: AccountTag[]
+  filterOpen: boolean
+  onFilterOpen(open: boolean): void
+  onFilter(filter: AccountFilter): void
+  onNewTag(): void
+  onTagMenu(tag: AccountTag): void
   selectedId: string | null
   picked: Set<string>
   inboxOn: boolean
@@ -58,6 +69,7 @@ interface Props {
 
 interface RowProps {
   row: RowModel
+  tags: AccountTag[]
   draggable: boolean
   showSub: boolean
   checked: boolean
@@ -69,7 +81,7 @@ interface RowProps {
   onContextMenu(e: MouseEvent, account: Account): void
 }
 
-function AccountRow({ row, draggable, showSub, checked, current, inboxOn, onRowClick, onCheck, onRowKey, onContextMenu }: RowProps) {
+function AccountRow({ row, tags, draggable, showSub, checked, current, inboxOn, onRowClick, onCheck, onRowKey, onContextMenu }: RowProps) {
   const { account: a, title, sub } = row
   const { setNodeRef, listeners, transform, transition, isDragging } = useSortable({ id: a.id, disabled: !draggable })
   const badge = badgeFor(a, inboxOn)
@@ -93,7 +105,10 @@ function AccountRow({ row, draggable, showSub, checked, current, inboxOn, onRowC
       </button>
       <button id={`account-${a.id}`} className="row-main" onClick={(e) => onRowClick(e, a.id)} onKeyDown={(e) => onRowKey(e, a.id)}>
         <span className="meta">
-          <span className="name">{title}</span>
+          <span className="name-line">
+            <span className="name">{title}</span>
+            <TagDots tags={tags} />
+          </span>
           {hasSub && <span className="email">{sub}</span>}
         </span>
         {a.pinned && !badge && <Pin size={12} className="pin-mark" aria-label="Pinned" />}
@@ -104,7 +119,9 @@ function AccountRow({ row, draggable, showSub, checked, current, inboxOn, onRowC
 }
 
 export function Sidebar(props: Props) {
-  const { groups, showSub, order, draggable, accounts, selectedId, picked, inboxOn, mod, view, progress } = props
+  const { groups, showSub, order, visible, filtering, draggable, accounts, tags, selectedId, picked, inboxOn, mod, view, progress } = props
+  const tagsOf = (a: Account) => tags.filter((t) => a.tagIds.includes(t.id))
+  const filterCount = countFilters(view.filter, new Set(tags.map((t) => t.id)))
   const picking = picked.size > 0
   const [dragging, setDragging] = useState(false)
   // A small threshold so clicks and right-clicks never start a drag.
@@ -166,6 +183,21 @@ export function Sidebar(props: Props) {
       <div className="titlebar">
         <span className="brand">HAM</span>
         <span className="titlebar-actions">
+          <FilterMenu
+            open={props.filterOpen}
+            onOpenChange={props.onFilterOpen}
+            filter={view.filter}
+            tags={tags}
+            accounts={accounts}
+            onChange={props.onFilter}
+            onNewTag={props.onNewTag}
+            onTagMenu={props.onTagMenu}
+          >
+            <button data-filter-button className={`icon-btn${filtering ? ' active' : ''}`} aria-label={filtering ? `Filter (${filterCount} on)` : 'Filter'}>
+              <ListFilter size={16} aria-hidden />
+              {filtering && <span className="icon-badge" aria-hidden>{filterCount}</span>}
+            </button>
+          </FilterMenu>
           <ViewOptions view={view} onChange={props.onView}>
             <button className="icon-btn" aria-label="View options">
               <SlidersHorizontal size={16} aria-hidden />
@@ -183,6 +215,17 @@ export function Sidebar(props: Props) {
           <kbd>{mod}K</kbd>
         </button>
       </div>
+
+      {filtering && (
+        <div className="filter-bar" role="status">
+          <span>
+            Showing {visible.length} of {accounts.length}
+          </span>
+          <button className="btn-link strong inline" onClick={() => props.onFilter(EMPTY_FILTER)}>
+            Clear filter
+          </button>
+        </div>
+      )}
 
       {progress && (
         <div className="progress-card" role="status">
@@ -210,8 +253,8 @@ export function Sidebar(props: Props) {
           onDragEnd={onDragEnd}
         >
           {groups.map((g) => {
-            // An empty section is only a drop target while dragging (your own groups always show).
-            if (g.rows.length === 0 && !dragging && !g.groupId) return null
+            // An empty section is only a drop target while dragging (your own groups show unless filtering).
+            if (g.rows.length === 0 && !dragging && (!g.groupId || filtering)) return null
             const ids = g.rows.map((r) => r.account.id)
             return (
               <div key={g.key || 'all'} role="group" aria-label={g.name || undefined} className="account-group">
@@ -234,6 +277,7 @@ export function Sidebar(props: Props) {
                       <AccountRow
                         key={r.account.id}
                         row={r}
+                        tags={tagsOf(r.account)}
                         draggable={draggable}
                         showSub={showSub}
                         checked={picked.has(r.account.id)}
@@ -251,6 +295,7 @@ export function Sidebar(props: Props) {
             )
           })}
         </DndContext>
+        {filtering && visible.length === 0 && <p className="list-empty">No accounts match this filter.</p>}
       </nav>
 
       <div className="sidebar-footer">
@@ -259,7 +304,7 @@ export function Sidebar(props: Props) {
             <div className="selection-top">
               <span className="selection-count">{picked.size} selected</span>
               <button className="btn-link strong inline" onClick={props.onSelectAll}>
-                {picked.size === accounts.length ? 'Select none' : 'Select all'}
+                {visible.length > 0 && visible.every((id) => picked.has(id)) ? 'Select none' : 'Select all'}
               </button>
               <button className="icon-btn" aria-label="Clear selection" onClick={props.onClearPicked}>
                 <X size={15} aria-hidden />
