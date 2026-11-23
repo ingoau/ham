@@ -5,6 +5,7 @@
 import { app } from 'electron'
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
+import { migrateTemplate } from '@shared/fields'
 import { DEFAULT_VIEW, type Account, type AccountGroup, type Theme, type ViewSettings } from '@shared/types'
 
 export interface StoredAccount extends Account {
@@ -76,10 +77,19 @@ function migrate(raw: Record<string, unknown>): StoreFile {
     window: raw.window as WindowState | undefined,
     dismissedUpdate: raw.dismissedUpdate as string | undefined,
     theme: (raw.theme as Theme) ?? 'system',
-    view: { ...DEFAULT_VIEW, ...((raw.view as Partial<ViewSettings>) ?? {}) },
+    view: migrateView({ ...DEFAULT_VIEW, ...((raw.view as Partial<ViewSettings>) ?? {}) }),
     inbox: (raw.inbox as InboxSettings | null) ?? null,
     loginLog: (raw.loginLog as number[]) ?? [],
     checkLog: (raw.checkLog as number[]) ?? []
+  }
+}
+
+function migrateView(view: ViewSettings): ViewSettings {
+  return {
+    ...view,
+    groupTpl: migrateTemplate(view.groupTpl),
+    line1Tpl: migrateTemplate(view.line1Tpl),
+    line2Tpl: migrateTemplate(view.line2Tpl)
   }
 }
 

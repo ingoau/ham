@@ -5,7 +5,7 @@ import { HighlightStyle, syntaxHighlighting } from '@codemirror/language'
 import { EditorState } from '@codemirror/state'
 import { EditorView, keymap, placeholder as placeholderExt } from '@codemirror/view'
 import { tags } from '@lezer/highlight'
-import { ALL_FIELDS } from '@shared/fields'
+import { HCA_FIELDS, SLACK_CUSTOM_FIELDS, SLACK_PROFILE_FIELDS } from '@shared/fields'
 
 const VARIABLES: Completion[] = [
   { label: 'account', type: 'variable', detail: 'this account' },
@@ -14,13 +14,20 @@ const VARIABLES: Completion[] = [
   { label: 'current', type: 'variable', detail: 'the field’s current value' }
 ]
 
-const ACCOUNT_PROPS: Completion[] = [
-  { label: 'first', type: 'property', detail: 'First name' },
-  { label: 'last', type: 'property', detail: 'Last name' },
-  { label: 'email', type: 'property', detail: 'Email' },
-  { label: 'phone', type: 'property', detail: 'Phone number' },
-  ...ALL_FIELDS.filter((f) => !f.hca).map((f) => ({ label: f.key, type: 'property', detail: f.name }))
-]
+const prop = (label: string, detail: string): Completion => ({ label, type: 'property', detail })
+
+/** Completions after `account.`, `account.hca.`, and so on. */
+const PROPS: Record<string, Completion[]> = {
+  account: [
+    prop('local', 'Local name'),
+    prop('email', 'Email'),
+    prop('hca', 'Hack Club Auth fields'),
+    prop('slack', 'Slack profile fields')
+  ],
+  'account.hca': HCA_FIELDS.map((f) => prop(f.key, f.name)),
+  'account.slack': [...SLACK_PROFILE_FIELDS.map((f) => prop(f.key, f.name)), prop('fields', 'Slack custom fields')],
+  'account.slack.fields': SLACK_CUSTOM_FIELDS.map((f) => prop(f.key, f.name))
+}
 
 const highlight = HighlightStyle.define([
   { tag: [tags.brace, tags.bracket, tags.punctuation], color: 'var(--faint)' },
@@ -70,7 +77,7 @@ export function TemplateInput({ id, value, onChange, invalid, placeholder, ariaL
         extensions: [
           singleLine,
           closeBrackets(),
-          jinja({ variables: VARIABLES, properties: (path) => (path.length === 1 && path[0] === 'account' ? ACCOUNT_PROPS : []) }),
+          jinja({ variables: VARIABLES, properties: (path) => PROPS[path.join('.')] ?? [] }),
           autocompletion({ activateOnTyping: true, icons: false }),
           keymap.of(completionKeymap),
           syntaxHighlighting(highlight),

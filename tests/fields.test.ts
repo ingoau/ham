@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { ALL_FIELDS, checkValue, fieldEditable, isValidTimezone } from '../src/shared/fields'
+import { ALL_FIELDS, checkValue, fieldEditable, isValidTimezone, migrateTemplate, templatePath } from '../src/shared/fields'
 
 const field = (id: string) => ALL_FIELDS.find((f) => f.id === id)!
 
@@ -31,5 +31,23 @@ describe('fieldEditable', () => {
     expect(fieldEditable(field('first'))).toBe(true)
     expect(fieldEditable(field('display_name'))).toBe(false)
     expect(fieldEditable(field('gold_since'))).toBe(false)
+  })
+})
+
+describe('template paths', () => {
+  it('nests fields by group', () => {
+    expect(templatePath(field('local'))).toBe('local')
+    expect(templatePath(field('first'))).toBe('hca.first')
+    expect(templatePath(field('title'))).toBe('slack.title')
+    expect(templatePath(field('school'))).toBe('slack.fields.school')
+  })
+  it('migrates old flat templates', () => {
+    expect(migrateTemplate('{{ account.first }} {{ account.last }}')).toBe('{{ account.hca.first }} {{ account.hca.last }}')
+    expect(migrateTemplate('{{ account.title | default("x") }} {{ account.school }}')).toBe(
+      '{{ account.slack.title | default("x") }} {{ account.slack.fields.school }}'
+    )
+    expect(migrateTemplate('{{ account.email }} {{ account.local }} {{ account.hca.first }} {{ account.slack.fields.school }}')).toBe(
+      '{{ account.email }} {{ account.local }} {{ account.hca.first }} {{ account.slack.fields.school }}'
+    )
   })
 })

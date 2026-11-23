@@ -95,7 +95,7 @@ try {
   await page.locator('.bulk-panel').waitFor({ timeout: 5_000 })
   await page.locator('#bulk-tpl').click()
   await page.keyboard.press('ControlOrMeta+a')
-  await page.keyboard.type('{{ account.first | upper }}')
+  await page.keyboard.type('{{ account.hca.first | upper }}')
   await page.getByRole('button', { name: /^Apply to \d+ accounts?$/ }).click()
   await page.getByText(/^Updated \d+ accounts?$/).waitFor({ timeout: 15_000 })
   if (!(await names()).some((n) => n.startsWith('FIONA'))) throw new Error('bulk edit did not apply')
@@ -106,20 +106,22 @@ try {
   await page.getByRole('button', { name: 'Clear selection' }).click()
   step('bulk edits a range of accounts, keeps the selection and undoes')
 
-  // ⌘A selects every account (outside text fields), pin from the bulk pane, Esc clears.
+  // ⌘A selects every account (outside text fields), Esc keeps it, ⇧⌘A clears, pin from the bulk pane.
   await row('Orpheus Dino').locator('.row-main').click()
   await page.keyboard.press('ControlOrMeta+a')
   const total = await page.locator('.account-row').count()
   if ((await page.locator('.account-row.checked').count()) !== total) throw new Error('select all did not pick every account')
   await page.keyboard.press('Escape')
-  if ((await page.locator('.account-row.checked').count()) !== 0) throw new Error('Escape did not clear the selection')
+  if ((await page.locator('.account-row.checked').count()) !== total) throw new Error('Escape changed the selection')
+  await page.keyboard.press('ControlOrMeta+Shift+a')
+  if ((await page.locator('.account-row.checked').count()) !== 0) throw new Error('deselect all did not clear the selection')
   await row('Orpheus Dino').locator('.row-check').click()
   await page.locator('.bulk-panel').getByRole('button', { name: 'Pin', exact: true }).click()
   await page.locator('.group-header', { hasText: 'Pinned' }).waitFor({ timeout: 5_000 })
   const first = await page.locator('.account-row .name').first().textContent()
   if (first !== 'Orpheus Dino') throw new Error(`pinned account is not first (${first})`)
   await page.getByRole('button', { name: 'Clear selection' }).click()
-  step('selects all with ⌘A, clears with Esc, pins from the bulk pane')
+  step('selects all with ⌘A, keeps it on Esc, clears with ⇧⌘A, pins from the bulk pane')
 
   // Make a group from a selection via the command palette.
   await row('Sam Rivera').locator('.row-check').click()

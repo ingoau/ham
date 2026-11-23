@@ -13,7 +13,7 @@ export interface FieldDef {
   id: string
   name: string
   group: (typeof FIELD_GROUPS)[number]
-  /** Key in the template's `account` object. */
+  /** Key in the template's `account` object, under its group (see templatePath). */
   key: string
   kind: FieldKind
   required?: boolean
@@ -107,24 +107,39 @@ export function fieldValue(a: Account, field: FieldDef): string {
 export interface TemplateAccount {
   /** The local name, or '' when there isn't one. */
   local: string
-  first: string
-  last: string
   email: string
-  phone: string
-  [slackKey: string]: string
+  hca: { first: string; last: string; phone: string }
+  /** Slack profile fields, with the custom ones under `fields`. */
+  slack: { fields: Record<string, string>; [key: string]: string | Record<string, string> }
+}
+
+/** Where a field sits in the template's `account` object, e.g. "slack.fields.school". */
+export function templatePath(field: FieldDef): string {
+  if (field.group === GROUP_HAM) return field.key
+  if (field.group === GROUP_HCA) return `hca.${field.key}`
+  if (field.group === GROUP_SLACK) return `slack.${field.key}`
+  return `slack.fields.${field.key}`
 }
 
 export function templateAccount(a: Account | null): TemplateAccount {
-  const acct: TemplateAccount = { local: '', first: '', last: '', email: '', phone: '' }
-  for (const fd of [...SLACK_PROFILE_FIELDS, ...SLACK_CUSTOM_FIELDS]) acct[fd.key] = ''
-  if (!a) return acct
-  acct.local = a.localName
-  acct.first = a.firstName
-  acct.last = a.lastName
-  acct.email = a.email
-  acct.phone = a.phone
-  for (const [k, v] of Object.entries(a.slack.profile)) acct[k] = v
-  return acct
+  const fields: Record<string, string> = {}
+  const slack: TemplateAccount['slack'] = { fields }
+  for (const fd of SLACK_PROFILE_FIELDS) slack[fd.key] = a?.slack.profile[fd.key] ?? ''
+  for (const fd of SLACK_CUSTOM_FIELDS) fields[fd.key] = a?.slack.profile[fd.key] ?? ''
+  return {
+    local: a?.localName ?? '',
+    email: a?.email ?? '',
+    hca: { first: a?.firstName ?? '', last: a?.lastName ?? '', phone: a?.phone ?? '' },
+    slack
+  }
+}
+
+/** Rewrite templates saved before fields moved under account.hca / account.slack. */
+export function migrateTemplate(tpl: string): string {
+  return tpl.replace(/\baccount\.(\w+)\b/g, (whole, key: string) => {
+    const field = ALL_FIELDS.find((fd) => fd.key === key && fd.group !== GROUP_HAM)
+    return field ? `account.${templatePath(field)}` : whole
+  })
 }
 
 export interface TemplateContext {

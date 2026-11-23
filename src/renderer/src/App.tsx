@@ -611,7 +611,7 @@ export function App() {
     }
   }
 
-  // Esc reverts unsaved profile changes, else clears the selection.
+  // Esc reverts unsaved profile changes.
   // ⌘A / ⇧⌘A also live here so they work wherever the menu accelerator doesn't fire.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
@@ -623,11 +623,10 @@ export function App() {
       }
       if (e.key !== 'Escape' || e.defaultPrevented || overlayOpen) return
       if (formRef.current?.revert()) toast('Changes reverted')
-      else if (picked.size > 0) setPicked(new Set())
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [overlayOpen, picked, accounts])
+  }, [overlayOpen, accounts])
 
   if (!app) return <div className="app" />
   const shownSheet = sheetLatch.value
