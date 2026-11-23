@@ -163,7 +163,17 @@ export interface ImapLinkInput {
   host: string
 }
 
-export type FindResult = { ok: true; addresses: string[] } | { ok: false; message: string }
+/** Where an address turned up: Hack Club Auth emails, or Hack Club Slack emails. */
+export type MailSource = 'hca' | 'slack'
+
+export interface FoundAddress {
+  email: string
+  sources: MailSource[]
+  /** From HCA's public check: false means no Hack Club account uses this email; null if unknown. */
+  hasAccount: boolean | null
+}
+
+export type FindResult = { ok: true; addresses: FoundAddress[] } | { ok: false; message: string }
 
 export interface Bounds {
   x: number

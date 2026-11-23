@@ -53,6 +53,20 @@ try {
   await page.keyboard.press('Escape')
   step('links an inbox')
 
+  // Find in inbox: Slack-only addresses are checked against HCA.
+  await page.locator('.search-button').click()
+  await page.locator('.cmdk-input').fill('find accounts in my inbox')
+  await page.keyboard.press('Enter')
+  const item = (email) => page.locator('.found-item', { hasText: email })
+  await item('no.account@example.com').waitFor({ timeout: 10_000 })
+  if ((await item('no.account@example.com').getAttribute('aria-checked')) !== 'false') throw new Error('no-account address was ticked')
+  await item('no.account@example.com').getByText('No Hack Club account').waitFor()
+  if ((await item('orpheus.slack@example.com').getAttribute('aria-checked')) !== 'true') throw new Error('Slack address was not ticked')
+  await item('orpheus.slack@example.com').locator('.found-source', { hasText: /^Slack$/ }).waitFor()
+  await item('fiona.leads@example.org').locator('.found-source', { hasText: 'Hack Club Auth · Slack' }).waitFor()
+  await page.keyboard.press('Escape')
+  step('finds Hack Club Auth and Slack addresses in the inbox')
+
   await page.getByRole('button', { name: 'Add account' }).click()
   await page.getByRole('tab', { name: 'Paste a list' }).click()
   await page.locator('#add-paste').fill('one.alt@example.com, 2fa.two@example.com; new.three@example.com\nfiona@example.com')

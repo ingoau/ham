@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
 import { Check, Loader2, X } from 'lucide-react'
-import type { Account } from '@shared/types'
+import type { Account, FoundAddress } from '@shared/types'
 import { isEmail, parseEmailList } from '../emails'
 
 export type AddMode = 'one' | 'paste' | 'inbox'
@@ -26,7 +26,7 @@ interface Props {
 export function AddAccountsDialog({ mode, accounts, inboxOn, onMode, onClose, onAdd, onOpenSettings }: Props) {
   const [email, setEmail] = useState('')
   const [paste, setPaste] = useState('')
-  const [found, setFound] = useState<string[] | null>(null)
+  const [found, setFound] = useState<FoundAddress[] | null>(null)
   const [findError, setFindError] = useState<string | null>(null)
   const [foundSel, setFoundSel] = useState<Set<string> | null>(null)
   const emailRef = useRef<HTMLInputElement>(null)
@@ -47,9 +47,11 @@ export function AddAccountsDialog({ mode, accounts, inboxOn, onMode, onClose, on
 
   const pasted = parseEmailList(paste)
   const pastedNew = pasted.filter((e, i) => !have.has(e) && pasted.indexOf(e) === i)
-  const foundNew = (found ?? []).filter((e) => !have.has(e))
+  // New addresses; ones HCA says have no account start unticked.
+  const foundOpen = (found ?? []).filter((f) => !have.has(f.email)).map((f) => f.email)
+  const foundNew = (found ?? []).filter((f) => !have.has(f.email) && f.hasAccount !== false).map((f) => f.email)
   const selected = foundSel ?? new Set(foundNew)
-  const foundPicked = foundNew.filter((e) => selected.has(e))
+  const foundPicked = foundOpen.filter((e) => selected.has(e))
   const one = email.trim().toLowerCase()
   const toAdd = mode === 'one' ? (isEmail(one) ? [one] : []) : mode === 'paste' ? pastedNew : inboxOn ? foundPicked : []
   const button =
@@ -120,7 +122,7 @@ export function AddAccountsDialog({ mode, accounts, inboxOn, onMode, onClose, on
                 <div className="loading-list" role="status" aria-live="polite">
                   <span className="loading-head">
                     <Loader2 size={15} className="spin" aria-hidden />
-                    Searching your inbox for Hack Club Auth emails…
+                    Searching your inbox for Hack Club emails…
                   </span>
                   <ul className="skeleton-list" aria-hidden>
                     {[68, 52, 74, 46, 60].map((w, i) => (
@@ -132,7 +134,7 @@ export function AddAccountsDialog({ mode, accounts, inboxOn, onMode, onClose, on
                   </ul>
                 </div>
               ) : found.length === 0 ? (
-                <p className="muted">No Hack Club Auth emails found.</p>
+                <p className="muted">No Hack Club emails found.</p>
               ) : (
                 <div className="found">
                   <div className="found-head">
@@ -142,15 +144,16 @@ export function AddAccountsDialog({ mode, accounts, inboxOn, onMode, onClose, on
                     <button
                       type="button"
                       className="btn-link strong inline"
-                      onClick={() => setFoundSel(foundPicked.length === foundNew.length ? new Set() : new Set(foundNew))}
+                      onClick={() => setFoundSel(foundPicked.length > 0 ? new Set() : new Set(foundNew))}
                     >
-                      {foundPicked.length === foundNew.length ? 'Select none' : 'Select all'}
+                      {foundPicked.length > 0 ? 'Select none' : 'Select all'}
                     </button>
                   </div>
                   <ul className="found-list">
-                    {found.map((e) => {
+                    {found.map(({ email: e, sources, hasAccount }) => {
                       const already = have.has(e)
                       const on = !already && selected.has(e)
+                      const note = already ? 'Already in HAM' : hasAccount === false ? 'No Hack Club account' : null
                       return (
                         <li key={e}>
                           <button
@@ -158,7 +161,7 @@ export function AddAccountsDialog({ mode, accounts, inboxOn, onMode, onClose, on
                             role="checkbox"
                             aria-checked={on}
                             disabled={already}
-                            className="found-item"
+                            className={`found-item${note ? ' dim' : ''}`}
                             onClick={() => {
                               const next = new Set(selected)
                               if (next.has(e)) next.delete(e)
@@ -169,8 +172,11 @@ export function AddAccountsDialog({ mode, accounts, inboxOn, onMode, onClose, on
                             <span className={`checkbox${on ? ' on' : ''}`} aria-hidden>
                               {on && <Check size={13} strokeWidth={3} />}
                             </span>
-                            <span className="found-email">{e}</span>
-                            {already && <span className="muted small">Already in HAM</span>}
+                            <span className="found-text">
+                              <span className="found-email">{e}</span>
+                              <span className="found-source">{sources.map((s) => (s === 'hca' ? 'Hack Club Auth' : 'Slack')).join(' · ')}</span>
+                            </span>
+                            {note && <span className="muted small">{note}</span>}
                           </button>
                         </li>
                       )

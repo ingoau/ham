@@ -2,13 +2,15 @@ import { app, BrowserWindow, clipboard, ipcMain, Menu, nativeTheme, net, protoco
 import { join, normalize, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { IPC, type InvokeMethod } from '@shared/ipc'
-import type { AppState, Bounds, ContextMenuItem, HamEvent, ImapLinkInput, MenuCommand, ProfileInput, Theme, UpdateInfo, ViewSettings } from '@shared/types'
+import type { AppState, Bounds, ContextMenuItem, FindResult, HamEvent, ImapLinkInput, MenuCommand, ProfileInput, Theme, UpdateInfo, ViewSettings } from '@shared/types'
 import { DEFAULT_VIEW } from '@shared/types'
 import { AccountService } from './accounts'
 import { AuthClient } from './auth/client'
+import { hcaAccountExists, mockAccountExists } from './auth/check'
 import { MockBackend, seedMockData } from './auth/mock'
 import { DashboardManager } from './dashboard'
 import { InboxService } from './inbox'
+import { checkAccounts } from './inbox-match'
 import { isSafeExternalUrl } from './lockdown'
 import { buildMenu } from './menu'
 import { launchSlack } from './slack'
@@ -279,7 +281,11 @@ function registerIpc() {
       await inbox.unlink()
       broadcastState()
     },
-    'inbox.findAddresses': () => inbox.findAddresses(),
+    'inbox.findAddresses': async (): Promise<FindResult> => {
+      const r = await inbox.findAddresses()
+      // Addresses only seen in Slack mail might not have a Hack Club account: ask HCA.
+      return r.ok ? { ok: true, addresses: await checkAccounts(r.addresses, MOCK ? mockAccountExists : hcaAccountExists) } : r
+    },
     'dashboard.show': (accountId: string, bounds: Bounds) => dashboard?.show(accountId, bounds),
     'dashboard.setBounds': (bounds: Bounds) => dashboard?.setBounds(bounds),
     'dashboard.hide': () => dashboard?.hide(),

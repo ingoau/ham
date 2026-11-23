@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { codeFromSubject, headerAddresses, matchCodes, parseHostPort, recipientsOf } from '../src/main/inbox-match'
+import { FoundSet, checkAccounts, codeFromSubject, headerAddresses, matchCodes, parseHostPort, recipientsOf } from '../src/main/inbox-match'
 
 describe('codeFromSubject', () => {
   it('reads the code and strips the hyphen', () => {
@@ -44,5 +44,41 @@ describe('parseHostPort', () => {
     expect(parseHostPort('imap.fastmail.com')).toEqual({ host: 'imap.fastmail.com', port: 993 })
     expect(parseHostPort('imap.mail.me.com:993')).toEqual({ host: 'imap.mail.me.com', port: 993 })
     expect(parseHostPort('bad host')).toBeNull()
+  })
+})
+
+describe('Find in inbox', () => {
+  it('merges sources per address and skips sender addresses', () => {
+    const found = new FoundSet()
+    found.add(['Both@Example.com', 'auth-only@example.com', 'auth@hackclub.com'], 'hca')
+    found.add(['both@example.com', 'slack-only@example.com', 'notification@slack.com'], 'slack')
+    expect(found.list()).toEqual([
+      { email: 'auth-only@example.com', sources: ['hca'], hasAccount: true },
+      { email: 'both@example.com', sources: ['hca', 'slack'], hasAccount: true },
+      { email: 'slack-only@example.com', sources: ['slack'], hasAccount: null }
+    ])
+  })
+  it('checks only Slack-only addresses, a few at a time', async () => {
+    const found = new FoundSet()
+    found.add(['a@example.com'], 'hca')
+    found.add(['b@example.com', 'c@example.com', 'd@example.com', 'e@example.com'], 'slack')
+    let running = 0
+    let peak = 0
+    const asked: string[] = []
+    const result = await checkAccounts(
+      found.list(),
+      async (email) => {
+        asked.push(email)
+        peak = Math.max(peak, ++running)
+        await new Promise((r) => setTimeout(r, 5))
+        running--
+        if (email === 'e@example.com') throw new Error('network')
+        return email !== 'c@example.com'
+      },
+      { concurrency: 2 }
+    )
+    expect(asked.sort()).toEqual(['b@example.com', 'c@example.com', 'd@example.com', 'e@example.com'])
+    expect(peak).toBe(2)
+    expect(result.map((f) => f.hasAccount)).toEqual([true, true, false, true, null])
   })
 })

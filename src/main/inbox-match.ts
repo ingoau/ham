@@ -1,6 +1,63 @@
 // Pure helpers for reading Hack Club Auth emails out of a linked inbox.
 
+import type { FoundAddress, MailSource } from '@shared/types'
+
 export const HCA_SENDER = 'auth@hackclub.com'
+
+/**
+ * Hack Club Slack emails: anything from slack.com whose body names the Hack Club
+ * workspace ("hackclub.enterprise.slack.com", "the Hack Club workspace").
+ * The server does the filtering, so message bodies are never downloaded.
+ */
+export const SLACK_SEARCH = { from: 'slack.com', or: [{ body: 'hackclub' }, { body: 'Hack Club' }] }
+
+/** Collects addresses and where each turned up. */
+export class FoundSet {
+  private map = new Map<string, Set<MailSource>>()
+
+  add(addresses: string[], source: MailSource) {
+    for (const raw of addresses) {
+      const email = raw.trim().toLowerCase()
+      // Skip the senders' own addresses if they show up in Cc.
+      if (!email.includes('@') || email.endsWith('@slack.com') || email === HCA_SENDER) continue
+      let set = this.map.get(email)
+      if (!set) this.map.set(email, (set = new Set()))
+      set.add(source)
+    }
+  }
+
+  /** Sorted by email. Addresses from HCA mail have an account; the rest are unknown until checked. */
+  list(): FoundAddress[] {
+    return [...this.map.entries()]
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([email, set]) => {
+        const sources = (['hca', 'slack'] as const).filter((s) => set.has(s))
+        return { email, sources, hasAccount: set.has('hca') ? true : null }
+      })
+  }
+}
+
+/**
+ * Fill in hasAccount for addresses only seen in Slack mail, a few at a time.
+ * `check` resolves true/false, or null when it couldn't tell.
+ */
+export async function checkAccounts(
+  found: FoundAddress[],
+  check: (email: string) => Promise<boolean | null>,
+  { concurrency = 3, limit = 300 } = {}
+): Promise<FoundAddress[]> {
+  const todo = found.filter((f) => f.hasAccount === null).slice(0, limit)
+  const results = new Map<string, boolean | null>()
+  let next = 0
+  const worker = async () => {
+    while (next < todo.length) {
+      const f = todo[next++]
+      results.set(f.email, await check(f.email).catch(() => null))
+    }
+  }
+  await Promise.all(Array.from({ length: Math.min(concurrency, todo.length) }, worker))
+  return found.map((f) => (results.has(f.email) ? { ...f, hasAccount: results.get(f.email) ?? null } : f))
+}
 
 /** "684-629 is your Hack Club login code" → "684629". */
 export function codeFromSubject(subject: string | undefined | null): string | null {

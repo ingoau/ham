@@ -5,7 +5,17 @@
 import { safeStorage } from 'electron'
 import { ImapFlow, type ListResponse } from 'imapflow'
 import type { FindResult, ImapLinkInput, InboxStatus } from '@shared/types'
-import { HCA_SENDER, codeFromSubject, matchCodes, parseHostPort, recipientsOf, type CodeMail, type Expectation } from './inbox-match'
+import {
+  FoundSet,
+  HCA_SENDER,
+  SLACK_SEARCH,
+  codeFromSubject,
+  matchCodes,
+  parseHostPort,
+  recipientsOf,
+  type CodeMail,
+  type Expectation
+} from './inbox-match'
 import type { InboxSettings, Store } from './store'
 
 const POLL_MS = 5_000
@@ -351,36 +361,39 @@ export class InboxService {
   async findAddresses(): Promise<FindResult> {
     if (this.mock) {
       await new Promise((r) => setTimeout(r, 900))
-      return {
-        ok: true,
-        addresses: Array.from({ length: 8 }, (_, i) => `hc-alt${i + 1}@example.com`).concat([
-          'fiona.leads@example.org',
-          '2fa.robotics@example.com'
-        ])
-      }
+      const found = new FoundSet()
+      found.add(Array.from({ length: 8 }, (_, i) => `hc-alt${i + 1}@example.com`).concat(['fiona.leads@example.org', '2fa.robotics@example.com']), 'hca')
+      found.add(['fiona.leads@example.org', 'orpheus.slack@example.com', 'no.account@example.com'], 'slack')
+      return { ok: true, addresses: found.list() }
     }
     if (!this.client) return { ok: false, message: 'The inbox isn’t connected right now.' }
     try {
-      const found = new Set<string>()
+      const found = new FoundSet()
       for (const f of await this.folders()) {
         const lock = await this.client.getMailboxLock(f.path, { readOnly: true })
         try {
-          const uids = (await this.client.search({ from: HCA_SENDER }, { uid: true })) || []
-          if (uids.length === 0) continue
-          if (f.path !== 'INBOX') this.rememberFolder(f.path)
-          for await (const msg of this.client.fetch(
-            uids.slice(-2000),
-            { uid: true, envelope: true, headers: ['delivered-to', 'x-original-to'] },
-            { uid: true }
-          )) {
-            for (const a of recipientsOf(msg.envelope, msg.headers?.toString('utf8') ?? '')) found.add(a)
+          // Hack Club Auth mail, then Hack Club Slack mail. Only envelopes and two headers are fetched.
+          for (const [source, query] of [
+            ['hca', { from: HCA_SENDER }],
+            ['slack', SLACK_SEARCH]
+          ] as const) {
+            const uids = (await this.client.search(query, { uid: true })) || []
+            if (uids.length === 0) continue
+            if (source === 'hca' && f.path !== 'INBOX') this.rememberFolder(f.path)
+            for await (const msg of this.client.fetch(
+              uids.slice(-2000),
+              { uid: true, envelope: true, headers: ['delivered-to', 'x-original-to'] },
+              { uid: true }
+            )) {
+              found.add(recipientsOf(msg.envelope, msg.headers?.toString('utf8') ?? ''), source)
+            }
           }
         } finally {
           lock.release()
         }
       }
       await this.idleOnPrimary()
-      return { ok: true, addresses: [...found].sort() }
+      return { ok: true, addresses: found.list() }
     } catch (err) {
       return { ok: false, message: friendly(err) }
     }
