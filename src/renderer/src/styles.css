@@ -678,3 +678,5 @@ textarea {
 .field-section legend + * { clear: both; }
 .grid-2.tight { gap: 10px; }
 .field input.mono-input { font-family: var(--mono); }
+.field-section .select { height: 42px; padding: 0 12px; border-radius: 9px; font-size: 15px; }
+.field-section .select:disabled { background: var(--field-disabled); color: var(--muted); }

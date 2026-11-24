@@ -19,6 +19,18 @@ export const HACK_CLUB_TEAM = 'T0266FRGM'
 /** The standard fields users.profile.set takes. */
 export const STANDARD_KEYS = ['real_name', 'display_name', 'pronouns', 'status_emoji', 'status_text'] as const
 
+/** Slack's status_expiration (Unix seconds, 0 for never) as HAM keeps it: an ISO time, or '' for never. */
+export function expiryFromSlack(seconds: unknown): string {
+  const n = Number(seconds)
+  return Number.isFinite(n) && n > 0 ? new Date(n * 1000).toISOString().replace('.000Z', 'Z') : ''
+}
+
+/** HAM's status expiry back to Slack's Unix seconds (0 for never). */
+export function expiryToSlack(value: string): number {
+  const ms = Date.parse(value.trim())
+  return value.trim() && Number.isFinite(ms) ? Math.floor(ms / 1000) : 0
+}
+
 export interface SlackAuth {
   token: string
   /** Origin for API calls, e.g. "https://hackclub.enterprise.slack.com/". */

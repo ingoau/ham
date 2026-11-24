@@ -88,6 +88,7 @@ async function theme(app, source) {
   await page.getByLabel('Pronouns').fill('she/they')
   await page.getByLabel('Status emoji').fill(':sparkles:')
   await page.getByLabel('Status text').fill('Running a hackathon')
+  await page.getByLabel('Clear status after').selectOption('today')
   await page.evaluate(() => document.activeElement?.blur())
   await shot(app, 'slack-profile')
   await page.locator('form[aria-labelledby="slack-heading"]').getByRole('button', { name: 'Revert' }).click()

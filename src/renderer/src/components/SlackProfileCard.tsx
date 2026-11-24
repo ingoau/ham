@@ -24,6 +24,42 @@ const TIMEZONES: string[] = typeof Intl.supportedValuesOf === 'function' ? Intl.
 const byId = (fields: FieldDef[]) => new Map(fields.map((f) => [f.id, f]))
 const std = byId(SLACK_PROFILE_FIELDS)
 
+/** When each "clear status after" choice ends, from now. */
+const EXPIRY_PRESETS: { id: string; label: string; at(): Date }[] = [
+  { id: '30m', label: '30 minutes', at: () => new Date(Date.now() + 30 * 60_000) },
+  { id: '1h', label: '1 hour', at: () => new Date(Date.now() + 60 * 60_000) },
+  { id: '4h', label: '4 hours', at: () => new Date(Date.now() + 4 * 60 * 60_000) },
+  {
+    id: 'today',
+    label: 'Today',
+    at: () => {
+      const d = new Date()
+      d.setHours(23, 59, 0, 0)
+      return d
+    }
+  },
+  {
+    id: 'week',
+    label: 'This week',
+    at: () => {
+      const d = new Date()
+      d.setDate(d.getDate() + ((7 - d.getDay()) % 7))
+      d.setHours(23, 59, 0, 0)
+      return d
+    }
+  }
+]
+
+const isoMinute = (d: Date) => new Date(Math.floor(d.getTime() / 60_000) * 60_000).toISOString().replace(':00.000Z', ':00Z')
+
+/** An ISO time as a datetime-local input value, in local time. */
+function localInput(iso: string): string {
+  const ms = Date.parse(iso)
+  if (Number.isNaN(ms)) return ''
+  const d = new Date(ms - new Date(ms).getTimezoneOffset() * 60_000)
+  return d.toISOString().slice(0, 16)
+}
+
 function draftOf(account: Account, fields: FieldDef[]): SlackProfile {
   const d: SlackProfile = {}
   for (const f of fields) d[f.id] = account.slack.profile[f.id] ?? ''
@@ -36,6 +72,8 @@ export const SlackProfileCard = forwardRef<SlackProfileHandle, Props>(function S
   const [draft, setDraft] = useState<SlackProfile>(() => draftOf(account, fields))
   const [saving, setSaving] = useState(false)
   const [errors, setErrors] = useState<string[]>([])
+  // Which "clear status after" choice was picked, so the menu keeps showing it.
+  const [expiryChoice, setExpiryChoice] = useState<string | null>(null)
   const session = account.slack.session
   const profileKey = JSON.stringify(account.slack.profile)
   // The values the draft started from, to tell the user's edits from Slack's.
@@ -85,6 +123,7 @@ export const SlackProfileCard = forwardRef<SlackProfileHandle, Props>(function S
     setDraft(values)
     base.current = { id: a.id, values }
     setErrors([])
+    setExpiryChoice(null)
   }
   const revert = () => resetTo(account)
 
@@ -168,6 +207,55 @@ export const SlackProfileCard = forwardRef<SlackProfileHandle, Props>(function S
     </div>
   )
 
+  // "Clear status after": never, a preset from now, or a set time.
+  const expiryField = (f: FieldDef) => {
+    const value = draft[f.id] ?? ''
+    const set = (v: string) => setDraft((d) => ({ ...d, [f.id]: v }))
+    return (
+      <div className="field">
+        {label(f)}
+        <div className="grid-2 tight">
+          <select
+            id={`slack-${f.id}`}
+            className="select"
+            value={value ? (expiryChoice ?? 'at') : 'never'}
+            disabled={disabled}
+            aria-describedby={problemOf(f) ? `slack-${f.id}-hint` : undefined}
+            onChange={(e) => {
+              const choice = e.target.value
+              setExpiryChoice(choice)
+              if (choice === 'never') return set('')
+              const preset = EXPIRY_PRESETS.find((p) => p.id === choice)
+              set(isoMinute(preset ? preset.at() : EXPIRY_PRESETS[1].at()))
+            }}
+          >
+            <option value="never">Don’t clear</option>
+            {EXPIRY_PRESETS.map((p) => (
+              <option key={p.id} value={p.id}>
+                {p.label}
+              </option>
+            ))}
+            <option value="at">At a set time</option>
+          </select>
+          {value && (
+            <input
+              type="datetime-local"
+              aria-label="Clear status at"
+              value={localInput(value)}
+              disabled={disabled}
+              aria-invalid={!!problemOf(f)}
+              onChange={(e) => {
+                setExpiryChoice('at')
+                set(e.target.value ? isoMinute(new Date(e.target.value)) : '')
+              }}
+            />
+          )}
+        </div>
+        {note(f)}
+      </div>
+    )
+  }
+
   // The workspace's own fields, by Slack's sections. A link's two halves sit together.
   // Header fields (name pronunciation) go with the names instead of under a heading of their own.
   const isHeader = (f: FieldDef) => f.slack?.sectionType === 'HEADER'
@@ -250,6 +338,7 @@ export const SlackProfileCard = forwardRef<SlackProfileHandle, Props>(function S
               {simple(std.get('status_emoji')!, { placeholder: ':wave:', className: 'mono-input' })}
               {simple(std.get('status_text')!, { placeholder: 'What’s happening?' })}
             </div>
+            {expiryField(std.get('status_expiration')!)}
           </fieldset>
 
           {sections.map((s) => (

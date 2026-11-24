@@ -18,7 +18,7 @@ HAM signs in to [Hack Club Auth](https://auth.hackclub.com) with your email, kee
 - **Every account in one list**, with a "Signed out" badge when a session has ended.
 - **A command palette** (Cmd+K) to jump to any account or run an action.
 - **Edit name and phone number.** Changes save straight to auth.hackclub.com.
-- **Edit the Slack profile:** full name, display name, title, pronouns, status, timezone, and every field Hack Club Slack adds (Manager, Website, School, Birthday and so on). HAM reads the field list from Slack, so new fields show up by themselves. It saves with the account's own Slack sign-in, after you've opened Slack once in HAM.
+- **Edit the Slack profile:** full name, display name, title, pronouns, status (and when it clears), timezone, and every field Hack Club Slack adds (Manager, Website, School, Birthday and so on). HAM reads the field list from Slack, so new fields show up by themselves. It saves with the account's own Slack sign-in, after you've opened Slack once in HAM.
 - **Local names** that only HAM keeps ("Personal", "Club leads"), to tell look-alike accounts apart. The list shows each account by its local name, then its Slack display name, Slack full name, and finally its Hack Club name. Search for them, set them in bulk, or use `{{ account.local }}` in templates.
 - **Select and bulk edit** any of those fields with Jinja templates (`{{ account.hca.first | lower }}-alt{{ index }}`, with Slack fields under `account.slack`, Slack's own fields under `account.slack.fields`, and the Slack user ID as `account.slack.id`): preview every change, apply in the background, undo. Sign out of a whole selection at once, too.
 - **View options:** sort, group and choose what each row shows, including templates.

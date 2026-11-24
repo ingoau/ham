@@ -9,7 +9,7 @@ export const GROUP_SLACK = 'Slack profile'
 export const GROUP_SLACK_CUSTOM = 'Slack custom fields'
 export const FIELD_GROUPS = [GROUP_HAM, GROUP_HCA, GROUP_SLACK, GROUP_SLACK_CUSTOM] as const
 
-export type FieldKind = 'text' | 'date' | 'tz' | 'emoji' | 'url' | 'user'
+export type FieldKind = 'text' | 'date' | 'tz' | 'emoji' | 'url' | 'user' | 'datetime'
 
 export interface FieldDef {
   /** Where the value lives: SlackProfile key for Slack fields. */
@@ -59,7 +59,9 @@ export const SLACK_PROFILE_FIELDS: FieldDef[] = [
   f('pronouns', 'Pronouns', GROUP_SLACK),
   f('tz', 'Timezone', GROUP_SLACK, { kind: 'tz' }),
   f('status_emoji', 'Status emoji', GROUP_SLACK, { kind: 'emoji' }),
-  f('status_text', 'Status text', GROUP_SLACK)
+  f('status_text', 'Status text', GROUP_SLACK),
+  // An ISO time ("2026-11-24T06:00:00Z"), or empty to keep the status until it's changed.
+  f('status_expiration', 'Clear status after', GROUP_SLACK, { kind: 'datetime' })
 ]
 
 /** The fixed fields: everything but the workspace's own Slack fields. */
@@ -185,6 +187,11 @@ export function checkValue(field: FieldDef, value: string): string {
       return /^:[a-z0-9_+-]+:$/.test(value) ? '' : 'Use :emoji_name:'
     case 'url':
       return /^https?:\/\/\S+$/.test(value) ? '' : 'Must start with https://'
+    case 'datetime': {
+      const ms = Date.parse(value)
+      if (Number.isNaN(ms)) return 'Use a date and time, e.g. 2026-11-24 17:00'
+      return ms > Date.now() ? '' : 'That time has passed'
+    }
     case 'user':
       return value.split(',').every((id) => /^[UW][A-Z0-9]{2,}$/.test(id.trim())) ? '' : 'Use Slack user IDs (U…), separated by commas'
     default:

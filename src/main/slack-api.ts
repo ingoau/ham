@@ -5,6 +5,8 @@ import type { Session } from 'electron'
 import type { SlackFieldDef, SlackProfile } from '@shared/types'
 import {
   STANDARD_KEYS,
+  expiryFromSlack,
+  expiryToSlack,
   changedElements,
   parseClientAuth,
   parseSections,
@@ -107,6 +109,7 @@ export class SlackApi {
     const { fields, values } = parseSections(sectionsOf(sections))
     const profile: SlackProfile = { ...values }
     for (const key of STANDARD_KEYS) profile[key] = String(prof.profile?.[key] ?? '')
+    profile.status_expiration = expiryFromSlack(prof.profile?.status_expiration)
     profile.title ??= String(prof.profile?.title ?? '')
     profile.tz = info.user?.tz ?? ''
     return { userId, profile, fields, users: await this.names(referencedUsers(fields, profile)) }
@@ -146,12 +149,10 @@ export class SlackApi {
         throw err
       }
     }
-    const standard: Record<string, string> = {}
+    const standard: Record<string, string | number> = {}
     for (const key of STANDARD_KEYS) if (key in changes) standard[key] = changes[key].trim()
-    if (Object.keys(standard).length) {
-      if ('status_text' in standard || 'status_emoji' in standard) Object.assign(standard, { status_expiration: 0 })
-      await this.call('users.profile.set', { profile: JSON.stringify(standard) })
-    }
+    if ('status_expiration' in changes) standard.status_expiration = expiryToSlack(changes.status_expiration)
+    if (Object.keys(standard).length) await this.call('users.profile.set', { profile: JSON.stringify(standard) })
     if ('tz' in changes && changes.tz.trim()) await this.call('users.prefs.set', { name: 'tz', value: changes.tz.trim() })
 
     for (const w of writes) await this.call('users.profile.setSections', { user: userId, section: w.section, elements: JSON.stringify(w.elements) })

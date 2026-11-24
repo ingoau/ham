@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { UnknownElementError, changedElements, parseClientAuth, parseSections, referencedUsers, sectionElements, sectionsOf } from '../src/main/slack-profile'
+import { UnknownElementError, changedElements, expiryFromSlack, expiryToSlack, parseClientAuth, parseSections, referencedUsers, sectionElements, sectionsOf } from '../src/main/slack-profile'
 
 // Shaped like users.profile.getSections on Hack Club Slack (2026-11), trimmed.
 const sections = sectionsOf(JSON.parse(readFileSync(new URL('./fixtures/slack_sections.json', import.meta.url), 'utf8')))
@@ -59,6 +59,16 @@ describe('parseSections', () => {
   it('keeps keys unique', () => {
     const twice = parseSections([{ sectionId: 'Ps1', label: 'A', profileElements: [section('PsABOUT').profileElements![2], { ...section('PsABOUT').profileElements![2], elementId: 'PeOTHER' }] }])
     expect(twice.fields.map((f) => f.key)).toEqual(['school', 'school_2'])
+  })
+})
+
+describe('status expiry', () => {
+  it('converts between Slack’s seconds and ISO times', () => {
+    expect(expiryFromSlack(0)).toBe('')
+    expect(expiryFromSlack(1795500000)).toBe('2026-11-24T06:00:00Z')
+    expect(expiryToSlack('2026-11-24T06:00:00Z')).toBe(1795500000)
+    expect(expiryToSlack('')).toBe(0)
+    expect(expiryToSlack('soon')).toBe(0)
   })
 })
 

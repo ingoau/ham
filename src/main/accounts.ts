@@ -558,7 +558,7 @@ export class AccountService {
   private slackChangeProblem(a: StoredAccount, changes: SlackProfile): string | null {
     const fields = new Map(this.store.slackFields.map((f) => [f.id, f]))
     for (const key of Object.keys(changes)) {
-      if ((STANDARD_KEYS as readonly string[]).includes(key) || key === 'tz' || key === 'title') continue
+      if ((STANDARD_KEYS as readonly string[]).includes(key) || ['tz', 'title', 'status_expiration'].includes(key)) continue
       const f = fields.get(key.split('.')[0])
       if (!f || !f.editable || (f.kind === 'link') !== key.includes('.')) return 'That Slack field can’t be changed here.'
     }

@@ -34,6 +34,12 @@ describe('checkValue', () => {
     expect(checkValue(field('website_url'), 'http://fiona.dev')).toBe('')
     expect(checkValue(field('website_url'), 'fiona.dev')).toBe('Must start with https://')
   })
+  it('checks status expiry times', () => {
+    expect(checkValue(field('status_expiration'), '')).toBe('')
+    expect(checkValue(field('status_expiration'), new Date(Date.now() + 3_600_000).toISOString())).toBe('')
+    expect(checkValue(field('status_expiration'), '2020-01-01T00:00:00Z')).toBe('That time has passed')
+    expect(checkValue(field('status_expiration'), 'tomorrow')).toMatch(/Use a date and time/)
+  })
   it('checks people', () => {
     expect(checkValue(field('manager'), 'U0923H02Y3B')).toBe('')
     expect(checkValue(field('manager'), 'U1AB, W2CD')).toBe('')
