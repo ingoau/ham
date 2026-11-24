@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import * as Popover from '@radix-ui/react-popover'
 import { Command } from 'cmdk'
-import { Check, ChevronDown, Folder, LogIn, Pin, PinOff, Tag, X } from 'lucide-react'
+import { Check, ChevronDown, Folder, LogIn, LogOut, Pin, PinOff, Tag, X } from 'lucide-react'
 import { ALL_FIELDS, FIELD_GROUPS, HCA_FIELDS, fieldEditable, type FieldDef } from '@shared/fields'
 import type { Account, AccountTag } from '@shared/types'
 import { bulkJobs, planBulk, type BulkPlan } from '../bulk'
@@ -21,6 +21,8 @@ interface Props {
   /** Opens the tag checklist. */
   onTags(): void
   onSignInAgain(): void
+  /** Asks to sign out of and remove every selected account. */
+  onSignOut(): void
   onApply(field: FieldDef, plan: BulkPlan): void
 }
 
@@ -75,7 +77,7 @@ function FieldPicker({ field, onPick }: { field: FieldDef; onPick(f: FieldDef): 
 }
 
 /** The right pane while accounts are selected: who's selected, quick actions, and bulk edit. */
-export function BulkPanel({ picked, busy, onClear, onPin, onGroup, onTags, onSignInAgain, onApply }: Props) {
+export function BulkPanel({ picked, busy, onClear, onPin, onGroup, onTags, onSignInAgain, onSignOut, onApply }: Props) {
   const [field, setField] = useState<FieldDef>(HCA_FIELDS[0])
   const [tpl, setTpl] = useState('{{ current }}')
   const { targets, jobs } = useMemo(() => bulkJobs(picked, field, tpl), [picked, field, tpl])
@@ -120,6 +122,10 @@ export function BulkPanel({ picked, busy, onClear, onPin, onGroup, onTags, onSig
               Sign in again
             </button>
           )}
+          <button className="btn" onClick={onSignOut} disabled={busy} title={busy ? 'Another update is running' : undefined}>
+            <LogOut size={15} aria-hidden />
+            {picked.some((a) => a.status === 'signed-in') ? 'Sign out…' : 'Remove…'}
+          </button>
           <button className="btn" onClick={onClear}>
             <X size={15} aria-hidden />
             Clear

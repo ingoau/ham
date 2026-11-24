@@ -402,6 +402,10 @@ html.platform-darwin .titlebar { padding-left: 88px; }
 .sheet-close { position: absolute; top: 12px; right: 12px; width: 40px; height: 40px; }
 .sheet-links { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
 .dialog-actions { display: flex; justify-content: flex-end; gap: 10px; flex-wrap: wrap; }
+.signout-list { margin: 0; padding: 4px 0; list-style: none; max-height: 220px; overflow-y: auto; border: 1px solid var(--border); border-radius: 10px; }
+.signout-list li { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; padding: 5px 12px; font-size: 13px; }
+.signout-list .email { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.signout-list .small { flex-shrink: 0; }
 @keyframes fade { from { opacity: 0; } }
 @keyframes rise { from { opacity: 0; transform: translate(-50%, 8px); } to { transform: translate(-50%, 0); } }
 

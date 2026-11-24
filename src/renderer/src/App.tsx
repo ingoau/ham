@@ -98,7 +98,7 @@ export function App() {
   const [selectedId, setSelectedId] = useState<string | null>(() => remembered.get('selected'))
   const [tab, setTab] = useState<Tab>('profile')
   const [sheet, setSheet] = useState<Sheet>(null)
-  const [confirmSignOut, setConfirmSignOut] = useState<Account | null>(null)
+  const [confirmSignOut, setConfirmSignOut] = useState<Account[] | null>(null)
   const [slackConfirm, setSlackConfirm] = useState<Account | null>(null)
   // Dialogs keep their content while they animate closed.
   const sheetLatch = useLatched(sheet)
@@ -471,7 +471,9 @@ export function App() {
           ...(list.some((a) => a.status === 'signed-out') ? [{ id: 'sign-in', label: 'Sign In Again' }] : []),
           { id: 'copy', label: `Copy ${list.length} Emails` },
           { type: 'separator' },
-          { id: 'deselect', label: 'Deselect All', accelerator: 'CmdOrCtrl+Shift+A' }
+          { id: 'deselect', label: 'Deselect All', accelerator: 'CmdOrCtrl+Shift+A' },
+          { type: 'separator' },
+          { id: 'remove', label: `${list.some((a) => a.status === 'signed-in') ? 'Sign Out and Remove' : 'Remove'} ${list.length} Accounts…` }
         ]
       : [
           { id: 'open', label: 'Open' },
@@ -533,8 +535,9 @@ export function App() {
         await window.ham.copyText(list.map((a) => a.email).join('\n'))
         return void toast.success(list.length > 1 ? `Copied ${list.length} emails` : 'Copied')
       case 'remove':
+        if (many) return confirmRemove(list)
         if (isPending(account.status)) return void remove(account)
-        return setConfirmSignOut(account)
+        return confirmRemove([account])
     }
   }
 
@@ -611,6 +614,55 @@ export function App() {
       else toast(`Removed ${account.email}`, { description: "HAM couldn't reach the server, so the session will expire on its own." })
     }
     if (selectedId === account.id) setSelectedId(null)
+  }
+
+  /** Ask before signing out of (and removing) one account or a whole selection. */
+  const confirmRemove = (list: Account[]) => {
+    if (list.length === 0) return
+    if (list.length > 1 && progress) return void toast('Wait for the current update to finish')
+    setConfirmSignOut(list)
+  }
+
+  /** Sign out of and remove several accounts in the background, a few at a time, with a progress card. */
+  const removeMany = async (list: Account[]) => {
+    const signingOut = list.some((a) => a.status === 'signed-in')
+    const label = signingOut ? 'Signing out' : 'Removing'
+    const removedIds = new Set<string>()
+    let unreached = 0
+    let failed = 0
+    let done = 0
+    let next = 0
+    cancelBulk.current = false
+    setProgress({ label, done: 0, total: list.length })
+    const worker = async () => {
+      while (next < list.length && !cancelBulk.current) {
+        const a = list[next++]
+        try {
+          let r = await window.ham.accounts.remove(a.id)
+          // A pending sign-in of an existing account is only cancelled by the first call; the second removes it.
+          if (!r.removed && isPending(a.status) && !a.fresh) r = await window.ham.accounts.remove(a.id)
+          if (r.removed) {
+            removedIds.add(a.id)
+            if (a.status === 'signed-in' && !r.serverSignedOut) unreached++
+          } else failed++
+        } catch {
+          failed++
+        }
+        done++
+        setProgress((p) => ({ label, done, total: list.length, cancelling: p?.cancelling }))
+      }
+    }
+    // Sign-out isn't rate limited, but keep it gentle on the server.
+    await Promise.all(Array.from({ length: Math.min(4, list.length) }, worker))
+    setProgress(null)
+    setSelectedId((id) => (id && removedIds.has(id) ? null : id))
+    const n = removedIds.size
+    const stopped = next < list.length ? 'Stopped. ' : ''
+    const text = `${stopped}${signingOut ? 'Signed out of' : 'Removed'} ${n} ${n === 1 ? 'account' : 'accounts'}${failed ? ` · ${failed} failed` : ''}`
+    const description = unreached
+      ? `HAM couldn’t reach the server for ${unreached === 1 ? 'one of them' : `${unreached} of them`}, so ${unreached === 1 ? 'that session' : 'those sessions'} will expire on their own.`
+      : undefined
+    ;(failed ? toast.error : unreached || stopped ? toast : toast.success)(text, { description })
   }
 
   const launchSlack = (account: Account) => {
@@ -750,7 +802,7 @@ export function App() {
         setSheet({ kind: 'tag', tag: null, ids: [...picked] })
         break
       case 'sign-out':
-        if (selected) setConfirmSignOut(selected)
+        confirmRemove(targets())
         break
     }
   }
@@ -854,6 +906,7 @@ export function App() {
                   void window.ham.accounts.signInAgain(ids)
                   toast(`Signing in ${ids.length} ${ids.length === 1 ? 'account' : 'accounts'} again`)
                 }}
+                onSignOut={() => confirmRemove(pickedAccounts)}
                 onApply={applyBulk}
               />
             </div>
@@ -944,7 +997,7 @@ export function App() {
                   <Tabs.Content value="profile" className="tab-panel">
                     <ProfileForm ref={formRef} account={selected} onSaved={onSaved} />
                     <LocalNameCard account={selected} />
-                    <SessionCard account={selected} onSignOut={() => setConfirmSignOut(selected)} />
+                    <SessionCard account={selected} onSignOut={() => confirmRemove([selected])} />
                   </Tabs.Content>
                   <Tabs.Content value="web" className="tab-panel grow">
                     {showDashboard && (
@@ -1051,9 +1104,15 @@ export function App() {
         <SignOutDialog
           key={signOutLatch.n}
           open={signOutLatch.open}
-          account={signOutLatch.value}
+          accounts={signOutLatch.value}
           onCancel={() => setConfirmSignOut(null)}
-          onConfirm={() => remove(signOutLatch.value!)}
+          onConfirm={async () => {
+            const list = signOutLatch.value!
+            if (list.length === 1) return remove(list[0])
+            // Many: close now and carry on in the background with a progress card.
+            setConfirmSignOut(null)
+            void removeMany(list)
+          }}
         />
       )}
 
