@@ -264,7 +264,8 @@ export class AuthClient implements AuthBackend {
     }
   }
 
-  async readSlack(): Promise<SlackOutcome> {
+  async readSlack(fresh = false): Promise<SlackOutcome> {
+    if (fresh) this.slack.reset()
     return slackGuard(() => this.slack.read())
   }
 

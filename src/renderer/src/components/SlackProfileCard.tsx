@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useMemo, useState, type FormEvent, type InputHTMLAttributes } from 'react'
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type FormEvent, type InputHTMLAttributes } from 'react'
 import { Info, MessageSquare } from 'lucide-react'
 import { SLACK_PROFILE_FIELDS, checkValue, type FieldDef } from '@shared/fields'
 import type { Account, SlackProfile } from '@shared/types'
@@ -38,24 +38,55 @@ export const SlackProfileCard = forwardRef<SlackProfileHandle, Props>(function S
   const [errors, setErrors] = useState<string[]>([])
   const session = account.slack.session
   const profileKey = JSON.stringify(account.slack.profile)
+  // The values the draft started from, to tell the user's edits from Slack's.
+  const base = useRef({ id: account.id, values: draft })
 
-  // A different account, fresh values from Slack, or a new field list reset the form.
+  // A different account resets the form. Fresh values from Slack (they're read
+  // whenever the window gets focus) only replace fields the user hasn't edited.
   useEffect(() => {
-    setDraft(draftOf(account, fields))
-    setErrors([])
+    const next = draftOf(account, fields)
+    const prev = base.current
+    if (prev.id !== account.id) {
+      setDraft(next)
+      setErrors([])
+    } else {
+      setDraft((d) => {
+        const merged = { ...next }
+        for (const f of fields) if (f.id in d && d[f.id] !== (prev.values[f.id] ?? '')) merged[f.id] = d[f.id]
+        return merged
+      })
+    }
+    base.current = { id: account.id, values: next }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [account.id, profileKey, fields])
 
-  const changed = fields.filter((f) => !f.locked && (draft[f.id] ?? '') !== (account.slack.profile[f.id] ?? ''))
-  const problems = changed.map((f) => [f, checkValue(f, draft[f.id] ?? '')] as const).filter(([, p]) => p)
+  const saved = (f: FieldDef) => account.slack.profile[f.id] ?? ''
+  const edited = (f: FieldDef) => {
+    const v = draft[f.id] ?? ''
+    return v !== saved(f) && v.trim() !== saved(f).trim()
+  }
+  const changed = fields.filter((f) => !f.locked && edited(f))
+  // A link's display text needs a URL: Slack drops the text otherwise.
+  const linkProblem = (f: FieldDef) => {
+    if (f.part !== 'url' || !f.slack) return ''
+    const text = (draft[`${f.slack.id}.text`] ?? '').trim()
+    return text && !(draft[f.id] ?? '').trim() ? 'Add a URL for the display text' : ''
+  }
+  const problems = fields
+    .filter((f) => !f.locked && (edited(f) || (f.part === 'url' && changed.some((c) => c.slack?.id === f.slack?.id))))
+    .map((f) => [f, checkValue(f, draft[f.id] ?? '') || linkProblem(f)] as const)
+    .filter(([, p]) => p)
   const problemOf = (f: FieldDef) => problems.find(([p]) => p.id === f.id)?.[1] ?? ''
   const dirty = changed.length > 0
   const canSave = session && dirty && problems.length === 0 && !saving
 
-  const revert = () => {
-    setDraft(draftOf(account, fields))
+  const resetTo = (a: Account) => {
+    const values = draftOf(a, fields)
+    setDraft(values)
+    base.current = { id: a.id, values }
     setErrors([])
   }
+  const revert = () => resetTo(account)
 
   const save = async (e?: FormEvent) => {
     e?.preventDefault()
@@ -66,7 +97,11 @@ export const SlackProfileCard = forwardRef<SlackProfileHandle, Props>(function S
       const changes: SlackProfile = {}
       for (const f of changed) changes[f.id] = draft[f.id] ?? ''
       const r = await window.ham.accounts.saveSlack(account.id, changes)
-      if (r.ok) onSaved('Saved to Slack', 'success')
+      if (r.ok) {
+        // Slack may tidy values (trimmed text, say): show what it kept.
+        resetTo(r.account)
+        onSaved('Saved to Slack', 'success')
+      }
       else if (r.reason === 'slack-signed-out') onSaved('Slack signed this account out. Launch Slack to sign in again.', 'error')
       else setErrors([r.message])
     } finally {
@@ -148,14 +183,17 @@ export const SlackProfileCard = forwardRef<SlackProfileHandle, Props>(function S
     if (f.part === 'url') return null
     if (f.part === 'text') {
       const url = custom.find((u) => u.slack?.id === f.slack?.id && u.part === 'url')!
+      // One note for both halves, so both inputs point at it.
+      const shown = problemOf(f) ? f : url
+      const noteId = problemOf(shown) || shown.hint ? `slack-${shown.id}-hint` : undefined
       return (
         <div className="field" key={f.id}>
           {label(f, f.slack?.label)}
           <div className="grid-2 tight">
-            {input(f, { placeholder: 'Display text', 'aria-label': `${f.slack?.label} display text` })}
-            {input(url, { placeholder: 'https://', type: 'url', 'aria-label': `${f.slack?.label} URL` })}
+            {input(f, { placeholder: 'Display text', 'aria-label': `${f.slack?.label} display text`, 'aria-describedby': noteId })}
+            {input(url, { placeholder: 'https://', type: 'url', 'aria-label': `${f.slack?.label} URL`, 'aria-describedby': noteId })}
           </div>
-          {note(url) ?? note(f)}
+          {note(shown)}
         </div>
       )
     }

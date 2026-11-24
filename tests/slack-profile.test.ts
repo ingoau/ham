@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { changedElements, parseClientAuth, parseSections, referencedUsers, sectionElements, sectionsOf } from '../src/main/slack-profile'
+import { UnknownElementError, changedElements, parseClientAuth, parseSections, referencedUsers, sectionElements, sectionsOf } from '../src/main/slack-profile'
 
 // Shaped like users.profile.getSections on Hack Club Slack (2026-11), trimmed.
 const sections = sectionsOf(JSON.parse(readFileSync(new URL('./fixtures/slack_sections.json', import.meta.url), 'utf8')))
@@ -83,6 +83,20 @@ describe('saving sections', () => {
       { element_id: 'PeREC', file: { fileId: 'F123' } },
       { element_id: 'PePRON', text: null }
     ])
+  })
+  it('tidies only the values being changed', () => {
+    const sec = { sectionId: 'Ps1', profileElements: [
+      { __typename: 'ProfileTextElement', elementId: 'Pe1', text: ' spaced ' },
+      { __typename: 'ProfileTextElement', elementId: 'Pe2', text: 'x' }
+    ] }
+    expect(sectionElements(sec, { Pe2: '  new  ' })).toEqual([
+      { element_id: 'Pe1', text: { text: ' spaced ' } },
+      { element_id: 'Pe2', text: { text: 'new' } }
+    ])
+  })
+  it('refuses to save a section with an element it would drop', () => {
+    const sec = { sectionId: 'Ps1', profileElements: [{ __typename: 'ProfileMysteryElement', elementId: 'Pe9', label: 'Mystery' }] }
+    expect(() => sectionElements(sec, {})).toThrow(UnknownElementError)
   })
   it('sends people as user ids', () => {
     expect(sectionElements(section('PsPEOPLE'), { PeMGR: 'U1, U2' })).toEqual([{ element_id: 'PeMGR', person: { persons: ['U1', 'U2'] } }])

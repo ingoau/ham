@@ -58,7 +58,7 @@ export interface AuthBackend {
   /** The account's Hack Club Slack ID from HCA (null: none linked; undefined: couldn't tell). */
   slackId(): Promise<string | null | undefined>
   /** Read the Slack profile with the partition's Slack session. */
-  readSlack(): Promise<SlackOutcome>
+  readSlack(fresh?: boolean): Promise<SlackOutcome>
   /** Save changed Slack profile values (keyed like SlackProfile), then read the profile back. */
   saveSlack(changes: SlackProfile): Promise<SlackOutcome>
 }

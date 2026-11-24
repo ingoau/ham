@@ -181,7 +181,8 @@ export function sectionElements(section: RawSection, changes: SlackProfile): obj
   for (const e of section.profileElements ?? []) {
     const id = e.elementId
     if (!id) continue
-    const pick = (key: string, current: string | null | undefined) => (key in changes ? changes[key] : (current ?? '')).trim()
+    // Only new values are tidied: untouched ones go back exactly as Slack has them.
+    const pick = (key: string, current: string | null | undefined) => (key in changes ? changes[key].trim() : (current ?? ''))
     switch (e.__typename) {
       case 'ProfileTextElement': {
         const text = pick(e.elementKey === 'title' ? 'title' : id, e.text)
@@ -220,9 +221,19 @@ export function sectionElements(section: RawSection, changes: SlackProfile): obj
           currentLocation: { city: e.city ?? '', country: e.country ?? '', description: e.description ?? '', state: e.state ?? '' }
         })
         break
+      default:
+        // Leaving an element out of a section save would clear it.
+        throw new UnknownElementError(e.label || id)
     }
   }
   return out
+}
+
+/** A section holds an element HAM doesn't know how to send back. */
+export class UnknownElementError extends Error {
+  constructor(label: string) {
+    super(`HAM can’t save this part of the Slack profile yet (it has a “${label}” field HAM doesn’t know).`)
+  }
 }
 
 /** User ids named in people fields, to look up their names. */

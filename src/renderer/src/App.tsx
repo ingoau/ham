@@ -20,7 +20,7 @@ import {
   type SlackFieldDef,
   type ViewSettings
 } from '@shared/types'
-import { contextFor, type BulkPlan } from './bulk'
+import { contextFor, setTemplateFields, type BulkPlan } from './bulk'
 import { useTemplates } from './templates'
 import { displayName, formatDate } from './util'
 import { buildView, type GroupModel, type TemplateValues } from './view'
@@ -155,7 +155,10 @@ export function App() {
   const slackFieldsKey = JSON.stringify(app?.slackFields ?? [])
   const customFields = useMemo(() => slackCustomFields(JSON.parse(slackFieldsKey) as SlackFieldDef[]), [slackFieldsKey])
   const allFieldDefs = useMemo(() => [...FIXED_FIELDS, ...customFields], [customFields])
-  useEffect(() => setSlackCompletions(customFields), [customFields])
+  useEffect(() => {
+    setSlackCompletions(customFields)
+    setTemplateFields(customFields)
+  }, [customFields])
 
   const tv = useViewTemplates(accounts, app?.view, customFields)
   const viewModel = useMemo(

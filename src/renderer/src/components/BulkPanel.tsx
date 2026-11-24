@@ -88,8 +88,10 @@ export function BulkPanel({ picked, busy, onClear, onPin, onGroup, onTags, onSig
   const fresh = results && results.length === jobs.length ? results : null
   const plan = planBulk(picked, field, targets, fresh)
   const count = plan.changes.length
-  const disabled = busy || !fresh || !!plan.templateError || plan.invalid > 0 || count === 0
-  const label = busy ? 'Another update is running' : count ? `Apply to ${count} ${count === 1 ? 'account' : 'accounts'}` : 'No changes'
+  // The field can leave Slack's list, or turn admin-only, while it's picked.
+  const gone = !fieldEditable(field) || (!!field.slack && !fields.some((f) => f.id === field.id))
+  const disabled = busy || gone || !fresh || !!plan.templateError || plan.invalid > 0 || count === 0
+  const label = busy ? 'Another update is running' : gone ? 'Can’t change this field' : count ? `Apply to ${count} ${count === 1 ? 'account' : 'accounts'}` : 'No changes'
   const allPinned = picked.every((a) => a.pinned)
   const signedOut = picked.filter((a) => a.status === 'signed-out').length
 

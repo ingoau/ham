@@ -227,7 +227,7 @@ function registerIpc() {
         onSignedIn: () => {
           if (MOCK) MockBackend.markSlackSession(partition)
           accounts.setSlack(id, { linked: true, session: true })
-          void accounts.refreshSlack(id)
+          void accounts.refreshSlack(id, true)
         },
         onSignedOut: () => {
           accounts.markSignedOut(id)

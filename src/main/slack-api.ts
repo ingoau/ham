@@ -12,6 +12,7 @@ import {
   sectionElements,
   sectionsOf,
   slackErrorMessage,
+  UnknownElementError,
   type SlackAuth
 } from './slack-profile'
 
@@ -56,7 +57,9 @@ export class SlackApi {
   private async getAuth(): Promise<SlackAuth> {
     if (this.auth) return this.auth
     const res = await this.fetch(AUTH_URL)
-    const auth = res.ok ? parseClientAuth(await res.text()) : null
+    // Only a page without tokens means signed out; an error page is Slack having a moment.
+    if (!res.ok) throw new SlackNetworkError(`Slack isn’t responding (${res.status}). Try again in a minute.`)
+    const auth = parseClientAuth(await res.text())
     if (!auth) throw new SlackSignedOut()
     this.auth = auth
     return auth
@@ -142,7 +145,14 @@ export class SlackApi {
     const touched = changedElements(sections, changes)
     for (const s of sections) {
       if (!s.sectionId || !(s.profileElements ?? []).some((e) => e.elementId && touched.has(e.elementId))) continue
-      await this.call('users.profile.setSections', { user: userId, section: s.sectionId, elements: JSON.stringify(sectionElements(s, changes)) })
+      let elements: object[]
+      try {
+        elements = sectionElements(s, changes)
+      } catch (err) {
+        if (err instanceof UnknownElementError) throw new SlackRejected(err.message)
+        throw err
+      }
+      await this.call('users.profile.setSections', { user: userId, section: s.sectionId, elements: JSON.stringify(elements) })
     }
     return this.read()
   }
