@@ -12,6 +12,7 @@ import type {
   SlackProfile,
   SlackSaveResult,
   SlackSignInResult,
+  SlackTokensResult,
   TagColor,
   Theme,
   UpdateInfo,
@@ -43,6 +44,8 @@ export interface HamApi {
     signInSlack(accountId: string): Promise<SlackSignInResult>
     /** Sign out of Slack only; the Hack Club session stays. */
     signOutSlack(accountId: string): Promise<void>
+    /** Sign in to Slack afresh in a throwaway session and return its tokens. HAM keeps nothing. */
+    slackTokens(accountId: string): Promise<SlackTokensResult>
     /** Set the name only HAM shows; empty clears it. */
     setLocalName(accountId: string, name: string): Promise<void>
     setPinned(accountIds: string[], pinned: boolean): Promise<void>
@@ -129,6 +132,7 @@ export type InvokeMethod =
   | 'accounts.launchSlack'
   | 'accounts.signInSlack'
   | 'accounts.signOutSlack'
+  | 'accounts.slackTokens'
   | 'accounts.setLocalName'
   | 'accounts.setPinned'
   | 'accounts.reorder'

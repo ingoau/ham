@@ -7,7 +7,7 @@
 import { app } from 'electron'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { ProfileInput, SlackFieldDef, SlackInfo, SlackProfile } from '@shared/types'
+import type { ProfileInput, SlackFieldDef, SlackInfo, SlackProfile, SlackTokens } from '@shared/types'
 import type { AuthBackend, ProfileOutcome, SaveOutcome, SlackOutcome, StartOutcome, VerifyOutcome } from './backend'
 import type { ParsedProfile } from './pages'
 import { normalizeCode } from './flow'
@@ -261,4 +261,16 @@ export function seedMockData(): { partition: string; email: string; profile: Par
   }
   saveDb(db)
   return seed
+}
+
+/** Demo Slack tokens: shaped like the real ones, good for nothing. */
+export function mockSlackTokens(email: string): SlackTokens {
+  const userId = slackIdFor(email)
+  const fill = (n: number) => Array.from({ length: n }, (_, i) => '0123456789abcdef'[(i * 7 + userId.length) % 16]).join('')
+  return {
+    userId,
+    xoxd: `xoxd-demo${fill(24)}%2F${fill(40)}%3D%3D`,
+    team: { id: 'T0266FRGM', token: `xoxc-2210535565-${fill(13)}-${fill(13)}-${fill(64)}` },
+    enterprise: { id: 'E09V59WQY1E', token: `xoxc-9998254838-${fill(13)}-${fill(13)}-${fill(64)}` }
+  }
 }

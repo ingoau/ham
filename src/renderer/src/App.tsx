@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import * as AlertDialog from '@radix-ui/react-alert-dialog'
 import * as Tabs from '@radix-ui/react-tabs'
-import { Lock, MessageSquare, Plus, RotateCw, Tag, UserPlus } from 'lucide-react'
+import { KeyRound, Lock, MessageSquare, Plus, RotateCw, Tag, UserPlus } from 'lucide-react'
 import { Toaster, toast } from 'sonner'
 import { FIXED_FIELDS, fieldValue, isSlackField, slackCustomFields, type FieldDef } from '@shared/fields'
 import {
@@ -36,6 +36,7 @@ import { PendingPane } from './components/PendingPane'
 import { ProfileForm, type ProfileFormHandle } from './components/ProfileForm'
 import { SessionCard } from './components/SessionCard'
 import { SlackProfileCard, type SlackProfileHandle } from './components/SlackProfileCard'
+import { SlackTokensDialog } from './components/SlackTokensDialog'
 import { setSlackCompletions } from './components/TemplateInput'
 import { SettingsDialog } from './components/SettingsDialog'
 import { Sidebar, type BulkProgress, type SectionMove } from './components/Sidebar'
@@ -51,6 +52,7 @@ type Sheet =
   | { kind: 'new-group'; ids: string[] }
   | { kind: 'rename-group'; group: AccountGroup }
   | { kind: 'local-name'; account: Account }
+  | { kind: 'slack-tokens'; account: Account }
   | { kind: 'tag'; tag: AccountTag | null; ids: string[]; fromFilter?: boolean }
 
 const remembered = {
@@ -507,6 +509,7 @@ export function App() {
             ? [
                 { id: 'dashboard', label: 'Open Hack Club Auth' },
                 { id: 'slack', label: 'Launch Slack' },
+                ...(onSlack(account) ? [{ id: 'slack-tokens', label: 'Get Slack Tokens…' }] : []),
                 { id: 'refresh', label: 'Refresh' }
               ]
             : []),
@@ -548,6 +551,8 @@ export function App() {
         return askSignInSlack(list)
       case 'slack-sign-out':
         return void signOutSlack(account)
+      case 'slack-tokens':
+        return setSheet({ kind: 'slack-tokens', account })
       case 'refresh':
         select(account.id)
         return void window.ham.accounts.refresh(account.id).then((r) => (r.ok ? toast.success('Profile is up to date') : toast.error('Couldn’t refresh')))
@@ -718,6 +723,9 @@ export function App() {
       : undefined
     ;(failed ? toast.error : unreached || stopped ? toast : toast.success)(text, { description })
   }
+
+  /** Whether the account is on Hack Club Slack, so a sign-in won't create a Slack account. */
+  const onSlack = (account: Account) => account.slack.linked === true || account.slack.session
 
   const launchSlack = (account: Account) => {
     if (account.slack.linked || account.slack.session) void window.ham.accounts.launchSlack(account.id)
@@ -1086,6 +1094,12 @@ export function App() {
                       <MessageSquare size={15} aria-hidden />
                       Launch Slack
                     </button>
+                    {onSlack(selected) && (
+                      <button className="btn" onClick={() => setSheet({ kind: 'slack-tokens', account: selected })}>
+                        <KeyRound size={15} aria-hidden />
+                        Slack tokens
+                      </button>
+                    )}
                     <button className="btn" onClick={() => void refresh()} disabled={refreshing}>
                       <RotateCw size={15} aria-hidden className={refreshing ? 'spin' : undefined} />
                       Refresh
@@ -1230,6 +1244,9 @@ export function App() {
             void window.ham.accounts.setLocalName(shownSheet.account.id, name)
           }}
         />
+      )}
+      {shownSheet?.kind === 'slack-tokens' && (
+        <SlackTokensDialog key={sheetLatch.n} open={sheetLatch.open} account={shownSheet.account} onClose={() => setSheet(null)} />
       )}
       {shownSheet?.kind === 'tag' && (
         <TagDialog

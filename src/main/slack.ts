@@ -14,8 +14,26 @@ import { installPermissions, slackContents } from './permissions'
 
 export const SLACK_CLIENT_URL = 'https://app.slack.com/client'
 
-const SLACK_HOST = /(^|\.)(slack\.com|slack-edge\.com|slack-imgs\.com|slack-files\.com|slackb\.com|slack-core\.com|slack-redir\.net)$/i
+export const SLACK_HOST = /(^|\.)(slack\.com|slack-edge\.com|slack-imgs\.com|slack-files\.com|slackb\.com|slack-core\.com|slack-redir\.net)$/i
 const HCA_SAML_PATHS = new Set(['/saml/idp_initiated/slack', '/saml/auth'])
+
+/**
+ * Run on the HCA home page: submit its own Slack SSO form, a normal same-origin
+ * POST with the page's CSRF token. Resolves false if the page has no token.
+ */
+export const SUBMIT_SAML = `(() => {
+  const token = document.querySelector('meta[name="csrf-token"]')?.content
+  if (!token) return false
+  const f = document.createElement('form')
+  f.method = 'post'
+  f.action = '/saml/idp_initiated/slack'
+  const i = document.createElement('input')
+  i.type = 'hidden'; i.name = 'authenticity_token'; i.value = token
+  f.appendChild(i)
+  document.body.appendChild(f)
+  f.submit()
+  return true
+})()`
 
 export type SlackVerdict = 'allow' | 'signed-out' | 'block' | 'external'
 
@@ -126,23 +144,7 @@ function startSaml(wc: WebContents, onNoToken: () => void) {
   const submitSaml = async () => {
     if (submitted) return
     submitted = true
-    const ok = await wc
-      .executeJavaScript(
-        `(() => {
-          const token = document.querySelector('meta[name="csrf-token"]')?.content
-          if (!token) return false
-          const f = document.createElement('form')
-          f.method = 'post'
-          f.action = '/saml/idp_initiated/slack'
-          const i = document.createElement('input')
-          i.type = 'hidden'; i.name = 'authenticity_token'; i.value = token
-          f.appendChild(i)
-          document.body.appendChild(f)
-          f.submit()
-          return true
-        })()`
-      )
-      .catch(() => false)
+    const ok = await wc.executeJavaScript(SUBMIT_SAML).catch(() => false)
     if (!ok) onNoToken()
   }
   wc.on('did-finish-load', () => {

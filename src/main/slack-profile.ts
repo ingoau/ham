@@ -11,7 +11,7 @@
 //   sections. users.profile.getSections lists them with their values, and
 //   users.profile.setSections saves one whole section at a time.
 import { slugKey } from '@shared/fields'
-import type { SlackFieldDef, SlackFieldKind, SlackProfile } from '@shared/types'
+import type { SlackFieldDef, SlackFieldKind, SlackProfile, SlackTokens } from '@shared/types'
 
 /** Hack Club's Slack workspace. */
 export const HACK_CLUB_TEAM = 'T0266FRGM'
@@ -48,8 +48,8 @@ interface ClientTeam {
   enterprise_api_token?: string
 }
 
-/** The Hack Club token from app.slack.com/auth?app=client, or null if the page has none (signed out). */
-export function parseClientAuth(html: string): SlackAuth | null {
+/** The Hack Club workspace and its org from app.slack.com/auth?app=client, or null if the page has none. */
+function clientTeams(html: string): { team: ClientTeam; userId: string; org?: ClientTeam } | null {
   const m = /incomingConfig\s*=\s*JSON\.stringify\((\{.*\})\);/s.exec(html)
   if (!m) return null
   let teams: Record<string, ClientTeam>
@@ -60,10 +60,35 @@ export function parseClientAuth(html: string): SlackAuth | null {
   }
   const team = teams[HACK_CLUB_TEAM] ?? Object.values(teams).find((t) => t.domain === 'hackclub' && !t.id?.startsWith('E'))
   if (!team?.user_id) return null
-  const org = team.enterprise_id ? teams[team.enterprise_id] : undefined
-  if (team.enterprise_api_token && org?.url) return { token: team.enterprise_api_token, api: withSlash(org.url), userId: team.user_id }
-  if (team.token && team.url) return { token: team.token, api: withSlash(team.url), userId: team.user_id }
+  return { team, userId: team.user_id, org: team.enterprise_id ? teams[team.enterprise_id] : undefined }
+}
+
+/** The Hack Club token from app.slack.com/auth?app=client, or null if the page has none (signed out). */
+export function parseClientAuth(html: string): SlackAuth | null {
+  const found = clientTeams(html)
+  if (!found) return null
+  const { team, userId, org } = found
+  if (team.enterprise_api_token && org?.url) return { token: team.enterprise_api_token, api: withSlash(org.url), userId }
+  if (team.token && team.url) return { token: team.token, api: withSlash(team.url), userId }
   return null
+}
+
+/** Both of the web client's Hack Club tokens (xoxc), or null if the page has none (signed out). */
+export function parseClientTokens(html: string): Omit<SlackTokens, 'xoxd'> | null {
+  const found = clientTeams(html)
+  if (!found) return null
+  const { team, userId, org } = found
+  const xoxc = (t?: string) => (t?.startsWith('xoxc-') ? t : undefined)
+  const teamToken = xoxc(team.token)
+  // The org's own token; the workspace's enterprise_api_token is the same kind.
+  const orgToken = xoxc(org?.token) ?? xoxc(team.enterprise_api_token)
+  const orgId = org?.id ?? team.enterprise_id
+  if (!teamToken && !orgToken) return null
+  return {
+    userId,
+    team: teamToken && team.id ? { id: team.id, token: teamToken } : null,
+    enterprise: orgToken && orgId ? { id: orgId, token: orgToken } : null
+  }
 }
 
 const withSlash = (url: string) => (url.endsWith('/') ? url : `${url}/`)

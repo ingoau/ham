@@ -115,6 +115,21 @@ try {
   if ((await page.getByLabel('School').inputValue()) !== 'Hackworth Academy') throw new Error('Slack save did not stick')
   step('edits the Slack profile, with fields from Slack')
 
+  // Slack tokens: a fresh sign-in's tokens, copied one by one or as a .env.
+  await page.getByRole('button', { name: 'Slack tokens' }).click()
+  const tokens = page.getByRole('dialog', { name: 'Slack tokens' })
+  await tokens.getByRole('list', { name: 'Tokens' }).waitFor({ timeout: 10_000 })
+  if ((await tokens.locator('.token-key').allTextContents()).join() !== 'SLACK_XOXD,SLACK_TEAM_XOXC,SLACK_ENTERPRISE_XOXC') throw new Error('Slack tokens missing')
+  if (!(await tokens.locator('.token-value').first().textContent()).includes('…')) throw new Error('Slack token not masked')
+  await tokens.getByRole('button', { name: 'Copy all as .env' }).click()
+  const env = await app.evaluate(({ clipboard }) => clipboard.readText())
+  if (!/^SLACK_XOXD="xoxd-[^"]+"\nSLACK_TEAM_XOXC="xoxc-[^"]+"\nSLACK_ENTERPRISE_XOXC="xoxc-[^"]+"$/.test(env)) throw new Error(`bad .env: ${env}`)
+  await tokens.getByRole('button', { name: 'Copy SLACK_XOXD' }).click()
+  if (!(await app.evaluate(({ clipboard }) => clipboard.readText())).startsWith('xoxd-')) throw new Error('xoxd not copied')
+  await page.keyboard.press('Escape')
+  await tokens.waitFor({ state: 'detached', timeout: 5_000 })
+  step('gets Slack tokens and copies them, one or all as .env')
+
   // Bulk edit a Slack field: accounts without a Slack session are skipped.
   await row('fiona@example.com').locator('.row-check').click()
   await row('fiona.leads@example.org').locator('.row-check').click()
