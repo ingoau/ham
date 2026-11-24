@@ -71,9 +71,10 @@ const remembered = {
   }
 }
 
-/** Render the list's template lines and template groups, by account id. */
 /** Accounts a Slack sign-in would do something for: signed in to Hack Club, not to Slack. */
 const slackTargets = (list: Account[]) => list.filter((a) => a.status === 'signed-in' && !a.slack.session)
+
+/** Render the list's template lines and template groups, by account id. */
 
 function useViewTemplates(accounts: Account[], view: ViewSettings | undefined, custom: FieldDef[]): TemplateValues {
   const plan = useMemo(() => {
@@ -776,7 +777,7 @@ export function App() {
     const stopped = next < list.length ? 'Stopped. ' : ''
     const problems = [failed && `${failed} couldn’t`, signedOut && `${signedOut} signed out of Hack Club`].filter(Boolean).join(' · ')
     const text = `${stopped}Signed in to Slack on ${signedIn} ${signedIn === 1 ? 'account' : 'accounts'}${problems ? ` · ${problems}` : ''}`
-    const description = failed ? 'Use Launch Slack on those to finish signing in.' : undefined
+    const description = failed ? 'Launch Slack on those to finish.' : undefined
     ;(failed || signedOut ? toast.error : stopped ? toast : toast.success)(text, { description })
   }
 

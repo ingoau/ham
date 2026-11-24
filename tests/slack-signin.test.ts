@@ -8,13 +8,17 @@ vi.mock('electron', () => ({ app: { getPath: () => tmpdir() } }))
 const { Store } = await import('../src/main/store')
 const { AccountService } = await import('../src/main/accounts')
 type Backend = import('../src/main/auth/backend').AuthBackend
+type SlackSignIn = import('../src/main/accounts').SlackSignIn
 
 /** Slack sessions by partition, shared by the fake backends. */
 let sessions: Record<string, boolean> = {}
+/** Whether Hack Club still has each partition signed in (default yes). */
+let hca: Record<string, boolean> = {}
 
 function fakeBackend(partition: string): Backend {
   return {
     hasSlackSession: async () => sessions[partition] === true,
+    readProfile: async () => (hca[partition] === false ? { kind: 'signed-out' } : { kind: 'ok', profile: {} }),
     readSlack: async () => (sessions[partition] ? { kind: 'ok', userId: 'U1', profile: {}, fields: [], users: {} } : { kind: 'signed-out' }),
     signOutSlack: async () => {
       sessions[partition] = false
@@ -24,6 +28,7 @@ function fakeBackend(partition: string): Backend {
 
 function setup(accounts: { id: string; status?: 'signed-in' | 'signed-out'; slack?: Partial<SlackInfo> }[], autoSlack = false) {
   sessions = {}
+  hca = {}
   const store = new Store(join(mkdtempSync(join(tmpdir(), 'ham-test-')), 'accounts.json'))
   store.autoSlack = autoSlack
   for (const a of accounts) {
@@ -51,13 +56,13 @@ function setup(accounts: { id: string; status?: 'signed-in' | 'signed-out'; slac
   const service = new AccountService(store, fakeBackend, () => {}, () => {})
   let running = 0
   let most = 0
-  const signIn = vi.fn(async (partition: string) => {
+  const signIn = vi.fn<SlackSignIn>(async (partition) => {
     running++
     most = Math.max(most, running)
     await new Promise((r) => setTimeout(r, 5))
     running--
     sessions[partition] = true
-    return 'signed-in' as const
+    return 'signed-in'
   })
   service.setSlackSignIn(signIn)
   return { store, service, signIn, most: () => most }
@@ -85,6 +90,54 @@ describe('Slack sign-in', () => {
     signIn.mockImplementationOnce(async () => 'signed-in')
     expect(await service.signInSlack('a')).toBe('failed')
     expect(store.find('a')?.slack.session).toBe(false)
+  })
+})
+
+describe('Slack sign-in races', () => {
+  it('drops a sign-in that finishes after signing out of Slack', async () => {
+    const { service, signIn, store } = setup([{ id: 'a' }])
+    let release = () => {}
+    signIn.mockImplementationOnce(async (partition) => {
+      await new Promise<void>((r) => (release = r))
+      sessions[partition] = true
+      return 'signed-in'
+    })
+    const pending = service.signInSlack('a')
+    await new Promise((r) => setTimeout(r, 5))
+    const out = service.signOutSlack('a')
+    release()
+    expect(await pending).toBe('failed')
+    await out
+    expect(store.find('a')?.slack).toMatchObject({ session: false, keepSignedOut: true })
+  })
+
+  it('only marks the account signed out when Hack Club agrees', async () => {
+    const { service, signIn, store } = setup([{ id: 'a' }, { id: 'b' }])
+    signIn.mockImplementation(async () => 'signed-out')
+    hca['p-b'] = false
+    expect(await service.signInSlack('a')).toBe('failed')
+    expect(store.find('a')?.status).toBe('signed-in')
+    expect(await service.signInSlack('b')).toBe('signed-out')
+    expect(store.find('b')?.status).toBe('signed-out')
+  })
+
+  it('a manual sign-in joining a skipped automatic one tries again', async () => {
+    const { service, signIn, store } = setup([{ id: 'a' }], true)
+    const releases: (() => void)[] = []
+    // Hold the three slots so the automatic run waits for a turn.
+    const hold = vi.fn<() => Promise<'failed'>>(() => new Promise((r) => releases.push(() => r('failed'))))
+    signIn.mockImplementationOnce(hold).mockImplementationOnce(hold).mockImplementationOnce(hold)
+    for (const id of ['x', 'y', 'z']) {
+      store.upsert({ ...store.find('a')!, id, partition: `p-${id}`, slack: { linked: false, session: false, profile: {} } })
+    }
+    const holders = ['x', 'y', 'z'].map((id) => service.signInSlack(id))
+    await new Promise((r) => setTimeout(r, 5))
+    service.autoSignInSlack(['a'])
+    service.setAutoSlack(false)
+    const manual = service.signInSlack('a')
+    releases.forEach((r) => r())
+    await Promise.all(holders)
+    expect(await manual).toBe('signed-in')
   })
 })
 

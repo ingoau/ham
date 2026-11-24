@@ -118,10 +118,10 @@ export function launchSlack(opts: SlackLaunchOptions) {
 
 /**
  * Load the HCA home page, then submit its own Slack SSO form: a normal
- * same-origin POST with the page's CSRF token. No token means HCA's session
- * has ended, and `onSignedOut` runs.
+ * same-origin POST with the page's CSRF token. `onNoToken` runs if the page
+ * has none (usually HCA's session has ended, but it may be an error page).
  */
-function startSaml(wc: WebContents, onSignedOut: () => void) {
+function startSaml(wc: WebContents, onNoToken: () => void) {
   let submitted = false
   const submitSaml = async () => {
     if (submitted) return
@@ -143,7 +143,7 @@ function startSaml(wc: WebContents, onSignedOut: () => void) {
         })()`
       )
       .catch(() => false)
-    if (!ok) onSignedOut()
+    if (!ok) onNoToken()
   }
   wc.on('did-finish-load', () => {
     if (wc.isDestroyed()) return
@@ -200,7 +200,10 @@ export function signInSlackHidden(partition: string, timeoutMs = HIDDEN_SIGN_IN_
       clearTimeout(timer)
       if (settle) clearTimeout(settle)
       ses.cookies.off('changed', onCookie)
-      if (!win.isDestroyed()) win.destroy()
+      // Not from inside the navigation event that may have called this.
+      setImmediate(() => {
+        if (!win.isDestroyed()) win.destroy()
+      })
       resolve(result)
     }
     // Slack sets its session cookie once SAML is done; give the rest of that response a moment to land.
@@ -215,11 +218,20 @@ export function signInSlackHidden(partition: string, timeoutMs = HIDDEN_SIGN_IN_
     wc.setAudioMuted(true)
     lockDown(wc, { hidden: true, onSignedIn: () => finish('signed-in'), onSignedOut: () => finish('signed-out') })
     wc.on('render-process-gone', () => finish('failed'))
-    startSaml(wc, () => finish('signed-out'))
+    wc.on('did-fail-load', (_e, _code, _desc, _url, isMainFrame) => {
+      if (isMainFrame) finish('failed')
+    })
+    // A page without a token might be an error page: only HCA's sign-in pages (see lockDown) mean signed out.
+    startSaml(wc, () => finish('failed'))
   })
   hidden.set(partition, { promise, cancel: () => cancel() })
   void promise.finally(() => hidden.delete(partition))
   return promise
+}
+
+/** Stop every hidden sign-in (when the main window closes, so they don't keep the app open). */
+export function cancelHiddenSlack() {
+  for (const h of [...hidden.values()]) h.cancel()
 }
 
 /** Close the partition's Slack window and stop any hidden sign-in (before signing out of Slack). */

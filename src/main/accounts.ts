@@ -23,6 +23,8 @@ const AUTO_SLACK_RETRY = 30 * 60 * 1000
 
 /** Signs a partition in to Slack in a hidden window (see slack.ts). */
 export type SlackSignIn = (partition: string) => Promise<'signed-in' | 'signed-out' | 'failed'>
+/** A sign-in's result, or 'skipped': an automatic one found nothing to do. */
+type SlackRun = SlackSignInResult | 'skipped'
 
 export interface InboxHooks {
   readonly connected: boolean
@@ -61,8 +63,10 @@ export class AccountService {
   private ticking = false
   private readonly slackQueue = new Map<string, Promise<unknown>>()
   private slackSignInHook: SlackSignIn | null = null
-  private readonly slackSigningIn = new Map<string, Promise<SlackSignInResult>>()
+  private readonly slackSigningIn = new Map<string, Promise<SlackRun>>()
   private readonly autoSlackFailed = new Map<string, number>()
+  /** Bumped by Slack sign-out and removal, so a sign-in that started before either drops its result. */
+  private readonly slackGen = new Map<string, number>()
   private slackSlots = 0
   private readonly slackWaiters: (() => void)[] = []
 
@@ -441,6 +445,8 @@ export class AccountService {
     const a = this.store.find(id)
     if (!a) return { serverSignedOut: false, removed: false }
     this.inbox?.forget(id)
+    this.bumpSlackGen(id)
+    this.autoSlackFailed.delete(id)
     const backend = this.backend(a.partition)
     if (a.status !== 'signed-in' && a.status !== 'signed-out' && !a.fresh) {
       await backend.clearLocalData()
@@ -730,18 +736,37 @@ export class AccountService {
   // --- Slack sign-in and sign-out -----------------------------------------
 
   /** Sign an account in to Slack in a hidden window. At most a few run at once; the rest wait their turn. */
-  signInSlack(id: string, auto = false): Promise<SlackSignInResult> {
+  async signInSlack(id: string): Promise<SlackSignInResult> {
+    // This may join an automatic run, which can skip; then try again by hand.
+    const joined = await this.startSlackSignIn(id, false)
+    if (joined !== 'skipped') return joined
+    const r = await this.startSlackSignIn(id, false)
+    return r === 'skipped' ? 'failed' : r
+  }
+
+  private startSlackSignIn(id: string, auto: boolean): Promise<SlackRun> {
     const running = this.slackSigningIn.get(id)
     if (running) return running
-    const run = this.runSlackSignIn(id, auto).finally(() => this.slackSigningIn.delete(id))
+    const run: Promise<SlackRun> = this.runSlackSignIn(id, auto).finally(() => {
+      if (this.slackSigningIn.get(id) === run) this.slackSigningIn.delete(id)
+    })
     this.slackSigningIn.set(id, run)
     return run
   }
 
-  private async runSlackSignIn(id: string, auto: boolean): Promise<SlackSignInResult> {
+  private bumpSlackGen(id: string) {
+    this.slackGen.set(id, (this.slackGen.get(id) ?? 0) + 1)
+  }
+
+  private async runSlackSignIn(id: string, auto: boolean): Promise<SlackRun> {
+    const gen = this.slackGen.get(id) ?? 0
+    // Signed out of Slack or removed since this started: leave it be.
+    const stale = () => (this.slackGen.get(id) ?? 0) !== gen
+    const gone: SlackRun = auto ? 'skipped' : 'failed'
     const first = this.store.find(id)
     if (!first || first.status !== 'signed-in') return 'signed-out'
     if (await this.backend(first.partition).hasSlackSession()) {
+      if (stale()) return gone
       this.setSlack(id, { session: true, keepSignedOut: false })
       return 'already'
     }
@@ -750,16 +775,22 @@ export class AccountService {
     let result: 'signed-in' | 'signed-out' | 'failed'
     try {
       // Things may have changed while it waited for a turn.
+      if (stale()) return gone
       const a = this.store.find(id)
       if (!a || a.status !== 'signed-in') return 'signed-out'
-      if (auto && (!this.store.autoSlack || a.slack.keepSignedOut || a.slack.session)) return 'failed'
+      if (auto && (!this.store.autoSlack || a.slack.keepSignedOut || a.slack.session)) return 'skipped'
       result = await this.slackSignInHook(a.partition)
     } finally {
       this.releaseSlackSlot()
     }
+    if (stale()) return gone
     const a = this.store.find(id)
-    if (!a) return 'failed'
-    if (result === 'signed-in' && !(await this.backend(a.partition).hasSlackSession())) result = 'failed'
+    if (!a) return gone
+    const backend = this.backend(a.partition)
+    if (result === 'signed-in' && !(await backend.hasSlackSession())) result = 'failed'
+    // Only believe "signed out" if Hack Club says so too.
+    if (result === 'signed-out' && (await backend.readProfile()).kind !== 'signed-out') result = 'failed'
+    if (stale()) return gone
     if (result === 'signed-in') {
       this.setSlack(id, { linked: true, session: true, keepSignedOut: false })
       void this.refreshSlack(id, true)
@@ -789,15 +820,24 @@ export class AccountService {
       if (ids && !ids.includes(a.id)) continue
       if (a.status !== 'signed-in' || a.slack.linked !== true || a.slack.session || a.slack.keepSignedOut) continue
       if (now - (this.autoSlackFailed.get(a.id) ?? 0) < AUTO_SLACK_RETRY) continue
-      void this.signInSlack(a.id, true).then((r) => {
+      void this.startSlackSignIn(a.id, true).then((r) => {
         if (r === 'failed') this.autoSlackFailed.set(a.id, Date.now())
-        else this.autoSlackFailed.delete(a.id)
+        else if (r !== 'skipped') this.autoSlackFailed.delete(a.id)
       })
     }
   }
 
+  setAutoSlack(on: boolean) {
+    this.store.autoSlack = on
+    if (!on) return
+    this.autoSlackFailed.clear()
+    this.autoSignInSlack()
+  }
+
   /** Sign out of Slack only. Automatic sign-in leaves the account alone until Slack is opened again. */
   signOutSlack(id: string): Promise<void> {
+    // Any sign-in still running or waiting for a turn drops its result.
+    this.bumpSlackGen(id)
     return this.slackLocked(id, async () => {
       const a = this.store.find(id)
       if (!a) return

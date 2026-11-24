@@ -12,7 +12,7 @@ import { InboxService } from './inbox'
 import { checkAccounts } from './inbox-match'
 import { isSafeExternalUrl } from './lockdown'
 import { buildMenu } from './menu'
-import { closeSlack, launchSlack, signInSlackHidden } from './slack'
+import { cancelHiddenSlack, closeSlack, launchSlack, signInSlackHidden } from './slack'
 import { Store, withDefaults } from './store'
 import { checkForUpdate } from './updates'
 
@@ -189,6 +189,7 @@ function createWindow() {
   win.on('closed', () => {
     mainWindow = null
     dashboard = null
+    cancelHiddenSlack()
   })
 }
 
@@ -299,8 +300,7 @@ function registerIpc() {
       broadcastState()
     },
     'settings.setAutoSlack': (on: boolean) => {
-      store.autoSlack = on === true
-      accounts.autoSignInSlack()
+      accounts.setAutoSlack(on === true)
       broadcastState()
     },
     'settings.checkForUpdates': async () => {
@@ -413,7 +413,8 @@ app.whenReady().then(async () => {
   }
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    // Hidden Slack sign-in windows and Slack windows don't count.
+    if (!mainWindow) createWindow()
   })
 })
 
