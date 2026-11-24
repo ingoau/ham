@@ -23,6 +23,7 @@ HAM signs in to [Hack Club Auth](https://auth.hackclub.com) with your email, kee
 - **Select and bulk edit** any of those fields with Jinja templates (`{{ account.hca.first | lower }}-alt{{ index }}`, with Slack fields under `account.slack`, Slack's own fields under `account.slack.fields`, and the Slack user ID as `account.slack.id`): preview every change, apply in the background, undo. Sign out of a whole selection at once, too.
 - **View options:** sort, group and choose what each row shows, including templates.
 - **Launch Slack** for any account in its own window, signed in through Hack Club.
+- **Slack tokens:** sign an account in to Slack afresh and copy its `xoxd` cookie and workspace and enterprise `xoxc` tokens, one at a time or all at once as a `.env` (`SLACK_XOXD`, `SLACK_TEAM_XOXC`, `SLACK_ENTERPRISE_XOXC`, the same names as [hc-slack-auth](https://github.com/ingoau/hc-slack-auth)).
 - **The Hack Club Auth dashboard, embedded** for each account and already signed in, or popped out into its own window. It's locked to auth.hackclub.com: it can't be used to sign in to other apps, and other links open in your browser.
 - **Light and dark** themes that follow your system, plus keyboard shortcuts.
 
@@ -65,6 +66,7 @@ Hack Club Auth has no API for editing a profile, so HAM uses the same form endpo
 - **Sign-in:** `POST /login`, `/login/:id/verify`, `/totp` and `/backup_code`, following the server's redirects by hand. Passkey prompts are skipped through `/login/:id/webauthn/skip`.
 - **Profiles:** read from `/identity/edit` and saved with `PATCH /identity` plus the Rails CSRF token. All HTML parsing lives in [`src/main/auth/pages.ts`](src/main/auth/pages.ts) and is tested against saved fixtures.
 - **Slack profiles:** with the Slack session the account got from Launch Slack, HAM reads the web client's token from `app.slack.com/auth` and calls Slack's API the way its web client does: `users.profile.getSections` for the workspace's fields and values, `users.profile.setSections` to save them a section at a time, `users.profile.set` for names, pronouns and status, and `users.prefs.set` for the timezone. The token is never stored. See [`src/main/slack-profile.ts`](src/main/slack-profile.ts).
+- **Slack tokens:** HAM copies the account's Hack Club Auth cookies into a throwaway in-memory partition, runs the same Slack SSO as Launch Slack in a hidden window there, then reads both `xoxc` tokens from `app.slack.com/auth` and the `d` cookie (as Slack set it, URL-encoded). The partition is wiped afterwards, so the tokens belong to a Slack session of their own, separate from the one HAM uses. HAM doesn't keep them. See [`src/main/slack-tokens.ts`](src/main/slack-tokens.ts).
 - **Dashboard:** a sandboxed `WebContentsView`. [`src/main/lockdown.ts`](src/main/lockdown.ts) blocks pages on other hosts and the SSO paths `/oauth/authorize` and `/saml/*`.
 
 ## Development
