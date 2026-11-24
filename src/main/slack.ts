@@ -218,8 +218,9 @@ export function signInSlackHidden(partition: string, timeoutMs = HIDDEN_SIGN_IN_
     wc.setAudioMuted(true)
     lockDown(wc, { hidden: true, onSignedIn: () => finish('signed-in'), onSignedOut: () => finish('signed-out') })
     wc.on('render-process-gone', () => finish('failed'))
-    wc.on('did-fail-load', (_e, _code, _desc, _url, isMainFrame) => {
-      if (isMainFrame) finish('failed')
+    // -3 (ERR_ABORTED) is one navigation replacing another, not a failure.
+    wc.on('did-fail-load', (_e, code, _desc, _url, isMainFrame) => {
+      if (isMainFrame && code !== -3) finish('failed')
     })
     // A page without a token might be an error page: only HCA's sign-in pages (see lockDown) mean signed out.
     startSaml(wc, () => finish('failed'))

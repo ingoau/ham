@@ -737,9 +737,12 @@ export class AccountService {
 
   /** Sign an account in to Slack in a hidden window. At most a few run at once; the rest wait their turn. */
   async signInSlack(id: string): Promise<SlackSignInResult> {
-    // This may join an automatic run, which can skip; then try again by hand.
+    // This may join an automatic run, which can skip; then try again by hand,
+    // unless it skipped because the account was signed out of Slack or removed.
+    const gen = this.slackGen.get(id) ?? 0
     const joined = await this.startSlackSignIn(id, false)
     if (joined !== 'skipped') return joined
+    if ((this.slackGen.get(id) ?? 0) !== gen) return 'failed'
     const r = await this.startSlackSignIn(id, false)
     return r === 'skipped' ? 'failed' : r
   }
@@ -754,8 +757,15 @@ export class AccountService {
     return run
   }
 
+  /** Make any sign-in for the account drop its result, and let a new one start rather than join it. */
   private bumpSlackGen(id: string) {
     this.slackGen.set(id, (this.slackGen.get(id) ?? 0) + 1)
+    this.slackSigningIn.delete(id)
+  }
+
+  /** Drop every Slack sign-in, running or waiting for a turn (the main window closed). */
+  cancelSlackSignIns() {
+    for (const id of [...this.slackSigningIn.keys()]) this.bumpSlackGen(id)
   }
 
   private async runSlackSignIn(id: string, auto: boolean): Promise<SlackRun> {
@@ -787,7 +797,10 @@ export class AccountService {
     const a = this.store.find(id)
     if (!a) return gone
     const backend = this.backend(a.partition)
-    if (result === 'signed-in' && !(await backend.hasSlackSession())) result = 'failed'
+    // The cookie is what counts: a sign-in cut short after Slack set it still worked.
+    const hasSession = await backend.hasSlackSession()
+    if (result === 'signed-in' && !hasSession) result = 'failed'
+    else if (result === 'failed' && hasSession) result = 'signed-in'
     // Only believe "signed out" if Hack Club says so too.
     if (result === 'signed-out' && (await backend.readProfile()).kind !== 'signed-out') result = 'failed'
     if (stale()) return gone

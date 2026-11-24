@@ -189,6 +189,8 @@ function createWindow() {
   win.on('closed', () => {
     mainWindow = null
     dashboard = null
+    // Queued sign-ins first, so none takes a slot the cancelled ones free up.
+    accounts.cancelSlackSignIns()
     cancelHiddenSlack()
   })
 }

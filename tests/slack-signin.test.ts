@@ -141,6 +141,51 @@ describe('Slack sign-in races', () => {
   })
 })
 
+describe('Slack sign-in after sign-out', () => {
+  it('a manual sign-in that joined an automatic one stays out after signing out of Slack', async () => {
+    const { service, signIn, store } = setup([{ id: 'a' }], true)
+    let release = () => {}
+    signIn.mockImplementationOnce(async () => {
+      await new Promise<void>((r) => (release = r))
+      return 'failed'
+    })
+    service.autoSignInSlack(['a'])
+    await new Promise((r) => setTimeout(r, 5))
+    const manual = service.signInSlack('a')
+    const out = service.signOutSlack('a')
+    release()
+    expect(await manual).toBe('failed')
+    await out
+    expect(signIn).toHaveBeenCalledTimes(1)
+    expect(store.find('a')?.slack).toMatchObject({ session: false, keepSignedOut: true })
+  })
+
+  it('a new sign-in after signing out of Slack does not join the dropped one', async () => {
+    const { service, signIn } = setup([{ id: 'a' }])
+    let release = () => {}
+    signIn.mockImplementationOnce(async () => {
+      await new Promise<void>((r) => (release = r))
+      return 'failed'
+    })
+    const first = service.signInSlack('a')
+    await new Promise((r) => setTimeout(r, 5))
+    await service.signOutSlack('a')
+    const second = service.signInSlack('a')
+    release()
+    expect(await first).toBe('failed')
+    expect(await second).toBe('signed-in')
+  })
+
+  it('counts a "failed" sign-in that left a Slack session as signed in', async () => {
+    const { service, signIn } = setup([{ id: 'a' }])
+    signIn.mockImplementationOnce(async (partition) => {
+      sessions[partition] = true
+      return 'failed'
+    })
+    expect(await service.signInSlack('a')).toBe('signed-in')
+  })
+})
+
 describe('automatic Slack sign-in', () => {
   it('does nothing while the setting is off', async () => {
     const { service, signIn } = setup([{ id: 'a' }])
