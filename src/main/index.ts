@@ -2,17 +2,18 @@ import { app, BrowserWindow, clipboard, ipcMain, Menu, nativeTheme, net, protoco
 import { join, normalize, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { IPC, type InvokeMethod } from '@shared/ipc'
-import type { AppState, Bounds, ContextMenuItem, FindResult, HamEvent, ImapLinkInput, MenuCommand, ProfileInput, SlackProfile, TagColor, Theme, UpdateInfo, ViewSettings } from '@shared/types'
+import type { AppState, Bounds, ContextMenuItem, FindResult, HamEvent, ImapLinkInput, MenuCommand, ProfileInput, SlackProfile, SlackTokensResult, TagColor, Theme, UpdateInfo, ViewSettings } from '@shared/types'
 import { AccountService } from './accounts'
 import { AuthClient } from './auth/client'
 import { hcaAccountExists, mockAccountExists } from './auth/check'
-import { MockBackend, seedMockData } from './auth/mock'
+import { MockBackend, mockSlackTokens, seedMockData } from './auth/mock'
 import { DashboardManager } from './dashboard'
 import { InboxService } from './inbox'
 import { checkAccounts } from './inbox-match'
 import { isSafeExternalUrl } from './lockdown'
 import { buildMenu } from './menu'
 import { launchSlack } from './slack'
+import { TokensFailed, TokensSignedOut, fetchSlackTokens } from './slack-tokens'
 import { Store, withDefaults } from './store'
 import { checkForUpdate } from './updates'
 
@@ -60,6 +61,7 @@ let accounts: AccountService
 let inbox: InboxService
 let dashboard: DashboardManager | null = null
 let update: UpdateInfo | null = null
+const tokenRuns = new Map<string, Promise<SlackTokensResult>>()
 
 /** Changes from the renderer: string values only, for at most 200 keys. */
 function cleanSlackChanges(changes: unknown): SlackProfile {
@@ -235,6 +237,16 @@ function registerIpc() {
         }
       })
     },
+    'accounts.slackTokens': (id: string): Promise<SlackTokensResult> => {
+      id = String(id)
+      // One sign-in per account at a time: a second ask shares the first.
+      let run = tokenRuns.get(id)
+      if (!run) {
+        run = slackTokens(id).finally(() => tokenRuns.delete(id))
+        tokenRuns.set(id, run)
+      }
+      return run
+    },
     'accounts.setLocalName': (id: string, name: string) => accounts.setLocalName(String(id), typeof name === 'string' ? name : ''),
     'accounts.setPinned': (ids: string[], pinned: boolean) => accounts.setPinned(Array.isArray(ids) ? ids : [], pinned === true),
     'accounts.reorder': (ids: string[]) => accounts.reorder(Array.isArray(ids) ? ids.map(String) : []),
@@ -324,6 +336,26 @@ function registerIpc() {
     dismissUpdate: () => {
       if (update) store.dismissedUpdate = update.version
       broadcastState()
+    }
+  }
+
+  async function slackTokens(id: string): Promise<SlackTokensResult> {
+    const account = accounts.list().find((a) => a.id === id)
+    const partition = accounts.partitionOf(id)
+    if (!account || !partition || account.status !== 'signed-in') return { ok: false, reason: 'signed-out', message: 'Sign in again to get Slack tokens.' }
+    if (!account.slack.linked && !account.slack.session) return { ok: false, reason: 'failed', message: 'This account isn’t on Slack yet. Launch Slack to join.' }
+    if (MOCK) {
+      await new Promise((r) => setTimeout(r, 1200))
+      return { ok: true, tokens: mockSlackTokens(account.email) }
+    }
+    try {
+      return { ok: true, tokens: await fetchSlackTokens(partition) }
+    } catch (err) {
+      if (err instanceof TokensSignedOut) {
+        accounts.markSignedOut(id)
+        return { ok: false, reason: 'signed-out', message: `${account.email} is signed out. Sign in again to get Slack tokens.` }
+      }
+      return { ok: false, reason: 'failed', message: err instanceof TokensFailed ? err.message : 'Couldn’t get Slack tokens. Try again.' }
     }
   }
 

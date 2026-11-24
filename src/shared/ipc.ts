@@ -11,6 +11,7 @@ import type {
   SaveResult,
   SlackProfile,
   SlackSaveResult,
+  SlackTokensResult,
   TagColor,
   Theme,
   UpdateInfo,
@@ -38,6 +39,8 @@ export interface HamApi {
     /** Save changed Slack profile values (keyed like SlackProfile) with the account's Slack session. */
     saveSlack(accountId: string, changes: SlackProfile): Promise<SlackSaveResult>
     launchSlack(accountId: string): Promise<void>
+    /** Sign in to Slack afresh in a throwaway session and return its tokens. HAM keeps nothing. */
+    slackTokens(accountId: string): Promise<SlackTokensResult>
     /** Set the name only HAM shows; empty clears it. */
     setLocalName(accountId: string, name: string): Promise<void>
     setPinned(accountIds: string[], pinned: boolean): Promise<void>
@@ -121,6 +124,7 @@ export type InvokeMethod =
   | 'accounts.save'
   | 'accounts.saveSlack'
   | 'accounts.launchSlack'
+  | 'accounts.slackTokens'
   | 'accounts.setLocalName'
   | 'accounts.setPinned'
   | 'accounts.reorder'

@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs'
 import { describe, expect, it } from 'vitest'
-import { UnknownElementError, changedElements, expiryFromSlack, expiryToSlack, parseClientAuth, parseSections, referencedUsers, sectionElements, sectionsOf } from '../src/main/slack-profile'
+import { UnknownElementError, changedElements, expiryFromSlack, expiryToSlack, parseClientAuth, parseClientTokens, parseSections, referencedUsers, sectionElements, sectionsOf } from '../src/main/slack-profile'
 
 // Shaped like users.profile.getSections on Hack Club Slack (2026-11), trimmed.
 const sections = sectionsOf(JSON.parse(readFileSync(new URL('./fixtures/slack_sections.json', import.meta.url), 'utf8')))
@@ -24,6 +24,33 @@ describe('parseClientAuth', () => {
   it('is null when signed out or for other workspaces', () => {
     expect(parseClientAuth('<html>Sign in to Slack</html>')).toBeNull()
     expect(parseClientAuth(page({ T999: { id: 'T999', url: 'https://other.slack.com/', domain: 'other', token: 'x', user_id: 'U1' } }))).toBeNull()
+  })
+})
+
+describe('parseClientTokens', () => {
+  const page = (teams: object) => `<script>sessionStorage.incomingConfig = JSON.stringify(${JSON.stringify({ teams })});</script>`
+
+  it('gives the workspace and enterprise tokens', () => {
+    const html = page({
+      E09V59WQY1E: { id: 'E09V59WQY1E', url: 'https://hackclub.enterprise.slack.com/', domain: 'hackclub', token: 'xoxc-org', user_id: 'U1' },
+      T0266FRGM: { id: 'T0266FRGM', url: 'https://hackclub.slack.com/', domain: 'hackclub', token: 'xoxc-team', user_id: 'U1', enterprise_id: 'E09V59WQY1E', enterprise_api_token: 'xoxc-ent' }
+    })
+    expect(parseClientTokens(html)).toEqual({ userId: 'U1', team: { id: 'T0266FRGM', token: 'xoxc-team' }, enterprise: { id: 'E09V59WQY1E', token: 'xoxc-org' } })
+  })
+  it('falls back to the enterprise_api_token without the org entry', () => {
+    const html = page({ T0266FRGM: { id: 'T0266FRGM', domain: 'hackclub', token: 'xoxc-team', user_id: 'U1', enterprise_id: 'E09V59WQY1E', enterprise_api_token: 'xoxc-ent' } })
+    expect(parseClientTokens(html)?.enterprise).toEqual({ id: 'E09V59WQY1E', token: 'xoxc-ent' })
+  })
+  it('leaves out a workspace with no enterprise', () => {
+    expect(parseClientTokens(page({ T0266FRGM: { id: 'T0266FRGM', domain: 'hackclub', token: 'xoxc-team', user_id: 'U1' } }))).toEqual({
+      userId: 'U1',
+      team: { id: 'T0266FRGM', token: 'xoxc-team' },
+      enterprise: null
+    })
+  })
+  it('is null when signed out or with no xoxc tokens', () => {
+    expect(parseClientTokens('<html>Sign in to Slack</html>')).toBeNull()
+    expect(parseClientTokens(page({ T0266FRGM: { id: 'T0266FRGM', domain: 'hackclub', token: 'xoxb-bot', user_id: 'U1' } }))).toBeNull()
   })
 })
 

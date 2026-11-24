@@ -74,6 +74,19 @@ export interface SlackInfo {
   fetchedAt?: string
 }
 
+/** A fresh Slack sign-in's web client credentials, for use outside HAM. HAM doesn't keep them. */
+export interface SlackTokens {
+  userId: string
+  /** The `d` cookie, as Slack set it (URL-encoded). */
+  xoxd: string
+  /** The Hack Club workspace's token (xoxc). */
+  team: { id: string; token: string } | null
+  /** The Enterprise Grid org's token (xoxc). */
+  enterprise: { id: string; token: string } | null
+}
+
+export type SlackTokensResult = { ok: true; tokens: SlackTokens } | { ok: false; reason: 'signed-out' | 'failed'; message: string }
+
 export interface Account {
   id: string
   email: string

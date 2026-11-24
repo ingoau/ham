@@ -1,5 +1,6 @@
-// Exposes a small, typed API to the renderer. The renderer never sees cookies
-// or makes network requests: everything goes through the main process.
+// Exposes a small, typed API to the renderer. The renderer makes no network
+// requests and never sees cookies, except the Slack tokens a person asks for
+// with "Slack tokens": everything goes through the main process.
 import { contextBridge, ipcRenderer, type IpcRendererEvent } from 'electron'
 import { IPC, type HamApi, type InvokeMethod } from '@shared/ipc'
 import type { HamEvent } from '@shared/types'
@@ -19,6 +20,7 @@ const api: HamApi = {
     save: (id, profile) => call('accounts.save', id, profile),
     saveSlack: (id, changes) => call('accounts.saveSlack', id, changes),
     launchSlack: (id) => call('accounts.launchSlack', id),
+    slackTokens: (id) => call('accounts.slackTokens', id),
     setLocalName: (id, name) => call('accounts.setLocalName', id, name),
     setPinned: (ids, pinned) => call('accounts.setPinned', ids, pinned),
     reorder: (ids) => call('accounts.reorder', ids),
