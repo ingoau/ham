@@ -7,8 +7,8 @@
 import { app } from 'electron'
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import type { ProfileInput, SlackInfo } from '@shared/types'
-import type { AuthBackend, ProfileOutcome, SaveOutcome, StartOutcome, VerifyOutcome } from './backend'
+import type { ProfileInput, SlackFieldDef, SlackInfo, SlackProfile } from '@shared/types'
+import type { AuthBackend, ProfileOutcome, SaveOutcome, SlackOutcome, StartOutcome, VerifyOutcome } from './backend'
 import type { ParsedProfile } from './pages'
 import { normalizeCode } from './flow'
 
@@ -25,7 +25,34 @@ interface MockDb {
   attempts?: Record<string, { email: string; stage: 'code' | '2fa' }>
   /** Partitions with a Slack session. */
   slack?: Record<string, boolean>
+  /** Slack profile values by partition. */
+  slackProfiles?: Record<string, SlackProfile>
 }
+
+const field = (id: string, section: string, sectionLabel: string, label: string, kind: SlackFieldDef['kind'], key: string, extra: Partial<SlackFieldDef> = {}): SlackFieldDef => ({
+  id,
+  section,
+  sectionLabel,
+  label,
+  hint: '',
+  kind,
+  editable: true,
+  key,
+  ...extra
+})
+
+/** A few of Hack Club Slack's own fields, one of each kind. */
+export const MOCK_SLACK_FIELDS: SlackFieldDef[] = [
+  field('PeDEMO1', 'PsHEAD', 'Header', 'Name Pronunciation', 'text', 'name_pronunciation', { sectionType: 'HEADER' }),
+  field('PeDEMO2', 'PsPEOPLE', 'People', 'Manager', 'person', 'manager'),
+  field('PeDEMO3', 'PsABOUT', 'About me', 'Website', 'link', 'website'),
+  field('PeDEMO4', 'PsABOUT', 'About me', 'School', 'text', 'school'),
+  field('PeDEMO5', 'PsABOUT', 'About me', 'Birthday', 'date', 'birthday', { hint: 'Share your birthday so other Hack Clubbers know when to 🎉' }),
+  field('PeDEMO6', 'PsABOUT', 'About me', 'Fav Food(s)', 'text', 'fav_food_s', { hint: 'e.g. tacos, cake, microwaved apples' }),
+  field('PeDEMO7', 'PsABOUT', 'About me', 'Hack Club Gold since', 'text', 'hack_club_gold_since', { editable: false })
+]
+
+const slackIdFor = (email: string) => `U0DEMO${email.length}`
 
 const DAY = 24 * 60 * 60 * 1000
 
@@ -177,7 +204,29 @@ export class MockBackend implements AuthBackend {
     const db = loadDb()
     const email = db.sessions[this.partition]?.email ?? ''
     // Demo: the Fiona accounts and anything with "slack" in it are on Slack.
-    return db.slack?.[this.partition] || /fiona|slack/.test(email) ? `U0DEMO${email.length}` : null
+    return db.slack?.[this.partition] || /fiona|slack/.test(email) ? slackIdFor(email) : null
+  }
+
+  async readSlack(): Promise<SlackOutcome> {
+    await wait(250)
+    const db = loadDb()
+    if (db.slack?.[this.partition] !== true) return { kind: 'signed-out' }
+    const email = db.sessions[this.partition]?.email ?? ''
+    const profile = { ...(db.slackProfiles?.[this.partition] ?? {}) }
+    const users: Record<string, string> = {}
+    for (const [part, s] of Object.entries(db.sessions)) users[slackIdFor(s.email)] = db.slackProfiles?.[part]?.display_name || s.email
+    return { kind: 'ok', userId: slackIdFor(email), profile, fields: MOCK_SLACK_FIELDS, users }
+  }
+
+  async saveSlack(changes: SlackProfile): Promise<SlackOutcome> {
+    await wait(400)
+    if (changes.status_emoji === ':nope:') return { kind: 'rejected', message: 'Slack doesn’t know that status emoji.' }
+    const db = loadDb()
+    if (db.slack?.[this.partition] !== true) return { kind: 'signed-out' }
+    db.slackProfiles ??= {}
+    db.slackProfiles[this.partition] = { ...(db.slackProfiles[this.partition] ?? {}), ...changes }
+    saveDb(db)
+    return this.readSlack()
   }
 
   /** Demo only: pretend the Slack popup signed in. */
@@ -193,13 +242,14 @@ export class MockBackend implements AuthBackend {
 export function seedMockData(): { partition: string; email: string; profile: ParsedProfile; expiresAt: string; signedIn: boolean; slack: SlackInfo }[] {
   const now = Date.now()
   const seed: { partition: string; email: string; profile: ParsedProfile; expiresAt: string; signedIn: boolean; slack: SlackInfo }[] = [
-    { partition: 'persist:acct-demo-1', email: 'fiona@example.com', profile: { firstName: 'Fiona', lastName: 'Hackworth', phone: '+1 (555) 201-4410', hasLegalName: false }, expiresAt: new Date(now + 28 * DAY).toISOString(), signedIn: true, slack: { linked: true, session: true, profile: { real_name: 'Fiona Hackworth', display_name: 'fiona', title: 'Club leader', pronouns: 'she/her', tz: 'Australia/Sydney' } } },
+    { partition: 'persist:acct-demo-1', email: 'fiona@example.com', profile: { firstName: 'Fiona', lastName: 'Hackworth', phone: '+1 (555) 201-4410', hasLegalName: false }, expiresAt: new Date(now + 28 * DAY).toISOString(), signedIn: true, slack: { linked: true, session: true, profile: { real_name: 'Fiona Hackworth', display_name: 'fiona', title: 'Club leader', pronouns: 'she/her', tz: 'Australia/Sydney', status_emoji: '', status_text: '', PeDEMO1: 'FEE-oh-nuh', PeDEMO2: '', 'PeDEMO3.text': 'fiona.dev', 'PeDEMO3.url': 'https://fiona.dev', PeDEMO4: 'Hackworth High', PeDEMO5: '', PeDEMO6: 'Dumplings', PeDEMO7: '2025' } } },
     { partition: 'persist:acct-demo-2', email: 'fiona.leads@example.org', profile: { firstName: 'Fiona', lastName: 'Hackworth', phone: '', hasLegalName: true }, expiresAt: new Date(now + 16 * DAY).toISOString(), signedIn: true, slack: { linked: true, session: false, profile: { real_name: 'Fiona Hackworth', display_name: 'fiona-leads' } } },
     { partition: 'persist:acct-demo-3', email: 'sam.rivera@example.net', profile: { firstName: 'Sam', lastName: 'Rivera', phone: '+44 7700 900123', hasLegalName: false }, expiresAt: new Date(now - 21 * DAY).toISOString(), signedIn: false, slack: { linked: null, session: false, profile: {} } }
   ]
-  const db: MockDb = { profiles: {}, sessions: {}, slack: { 'persist:acct-demo-1': true } }
+  const db: MockDb = { profiles: {}, sessions: {}, slack: { 'persist:acct-demo-1': true }, slackProfiles: {} }
   for (const s of seed) {
     db.profiles[s.email] = s.profile
+    db.slackProfiles![s.partition] = s.slack.profile
     db.sessions[s.partition] = { email: s.email, signedIn: s.signedIn, expiresAt: s.expiresAt }
   }
   saveDb(db)

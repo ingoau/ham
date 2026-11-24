@@ -3,7 +3,7 @@ import * as AlertDialog from '@radix-ui/react-alert-dialog'
 import * as Tabs from '@radix-ui/react-tabs'
 import { Lock, MessageSquare, Plus, RotateCw, Tag, UserPlus } from 'lucide-react'
 import { Toaster, toast } from 'sonner'
-import { fieldValue, type FieldDef } from '@shared/fields'
+import { FIXED_FIELDS, fieldValue, isSlackField, slackCustomFields, type FieldDef } from '@shared/fields'
 import {
   isPending,
   TAG_COLORS,
@@ -17,9 +17,10 @@ import {
   type DashboardState,
   type MenuCommand,
   type SaveResult,
+  type SlackFieldDef,
   type ViewSettings
 } from '@shared/types'
-import { contextFor, type BulkPlan } from './bulk'
+import { contextFor, setTemplateFields, type BulkPlan } from './bulk'
 import { useTemplates } from './templates'
 import { displayName, formatDate } from './util'
 import { buildView, type GroupModel, type TemplateValues } from './view'
@@ -34,6 +35,8 @@ import { DashboardPane } from './components/DashboardPane'
 import { PendingPane } from './components/PendingPane'
 import { ProfileForm, type ProfileFormHandle } from './components/ProfileForm'
 import { SessionCard } from './components/SessionCard'
+import { SlackProfileCard, type SlackProfileHandle } from './components/SlackProfileCard'
+import { setSlackCompletions } from './components/TemplateInput'
 import { SettingsDialog } from './components/SettingsDialog'
 import { Sidebar, type BulkProgress, type SectionMove } from './components/Sidebar'
 import { SignOutDialog } from './components/SignOutDialog'
@@ -69,16 +72,16 @@ const remembered = {
 }
 
 /** Render the list's template lines and template groups, by account id. */
-function useViewTemplates(accounts: Account[], view: ViewSettings | undefined): TemplateValues {
+function useViewTemplates(accounts: Account[], view: ViewSettings | undefined, custom: FieldDef[]): TemplateValues {
   const plan = useMemo(() => {
     const kinds: (keyof TemplateValues)[] = []
     const tpls: string[] = []
     if (view?.line1 === 'tpl') kinds.push('line1'), tpls.push(view.line1Tpl)
     if (view?.line2 === 'tpl') kinds.push('line2'), tpls.push(view.line2Tpl)
     if (view?.groupBy === 'tpl') kinds.push('group'), tpls.push(view.groupTpl)
-    const jobs = kinds.flatMap((_, k) => accounts.map((a, i) => ({ tpl: tpls[k], ctx: contextFor(a, i + 1, accounts.length, '') })))
+    const jobs = kinds.flatMap((_, k) => accounts.map((a, i) => ({ tpl: tpls[k], ctx: contextFor(a, i + 1, accounts.length, '', custom) })))
     return { kinds, jobs }
-  }, [accounts, view])
+  }, [accounts, view, custom])
   const results = useTemplates(plan.jobs)
   return useMemo(() => {
     const tv: TemplateValues = { line1: new Map(), line2: new Map(), group: new Map() }
@@ -114,6 +117,7 @@ export function App() {
   const [progress, setProgress] = useState<BulkProgress | null>(null)
   const [now, setNow] = useState(Date.now())
   const formRef = useRef<ProfileFormHandle>(null)
+  const slackRef = useRef<SlackProfileHandle>(null)
   const cancelBulk = useRef(false)
   // Only one background job (bulk edit, undo or bulk sign-out) at a time; they share the progress card.
   const bulkRunning = useRef(false)
@@ -148,7 +152,17 @@ export function App() {
     return () => clearInterval(t)
   }, [anyPending])
 
-  const tv = useViewTemplates(accounts, app?.view)
+  // Slack's own profile fields come from Slack, so the field list follows the app state.
+  // Every state update brings a fresh copy: key on the content so forms only reset when it changes.
+  const slackFieldsKey = JSON.stringify(app?.slackFields ?? [])
+  const customFields = useMemo(() => slackCustomFields(JSON.parse(slackFieldsKey) as SlackFieldDef[]), [slackFieldsKey])
+  const allFieldDefs = useMemo(() => [...FIXED_FIELDS, ...customFields], [customFields])
+  useEffect(() => {
+    setSlackCompletions(customFields)
+    setTemplateFields(customFields)
+  }, [customFields])
+
+  const tv = useViewTemplates(accounts, app?.view, customFields)
   const viewModel = useMemo(
     () =>
       app
@@ -716,6 +730,13 @@ export function App() {
           setProgress((p) => ({ label, done: i + 1, total: items.length, cancelling: p?.cancelling }))
           continue
         }
+        if (isSlackField(field)) {
+          const r = await window.ham.accounts.saveSlack(account.id, { [field.id]: value })
+          if (r.ok) previous.push({ account, value: fieldValue(account, field) })
+          else failed++
+          setProgress((p) => ({ label, done: i + 1, total: items.length, cancelling: p?.cancelling }))
+          continue
+        }
         const latest = accounts.find((a) => a.id === account.id) ?? account
         const input = { firstName: latest.firstName, lastName: latest.lastName, phone: latest.phone }
         if (field.key === 'first') input.firstName = value
@@ -800,7 +821,10 @@ export function App() {
     if (overlayOpen) return
     switch (command.type) {
       case 'save':
-        if (!showDashboard) formRef.current?.save()
+        if (!showDashboard) {
+          formRef.current?.save()
+          slackRef.current?.save()
+        }
         break
       case 'refresh':
         if (showDashboard) void window.ham.dashboard.reload()
@@ -849,7 +873,8 @@ export function App() {
         return
       }
       if (e.key !== 'Escape' || e.defaultPrevented || overlayOpen) return
-      if (formRef.current?.revert()) toast('Changes reverted')
+      const reverted = [formRef.current?.revert(), slackRef.current?.revert()].some(Boolean)
+      if (reverted) toast('Changes reverted')
     }
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
@@ -938,6 +963,8 @@ export function App() {
                 }}
                 onSignOut={() => confirmRemove(pickedAccounts)}
                 onApply={applyBulk}
+                fields={allFieldDefs}
+                customFields={customFields}
               />
             </div>
           ) : !selected ? (
@@ -1026,6 +1053,16 @@ export function App() {
 
                   <Tabs.Content value="profile" className="tab-panel">
                     <ProfileForm ref={formRef} account={selected} onSaved={onSaved} />
+                    <SlackProfileCard
+                      // One form per account: a save that finishes after switching can't touch another account's form.
+                      key={selected.id}
+                      ref={slackRef}
+                      account={selected}
+                      custom={customFields}
+                      accounts={accounts}
+                      onLaunch={() => launchSlack(selected)}
+                      onSaved={(text, kind) => (kind === 'success' ? toast.success(text) : toast.error(text))}
+                    />
                     <LocalNameCard account={selected} />
                     <SessionCard account={selected} onSignOut={() => confirmRemove([selected])} />
                   </Tabs.Content>

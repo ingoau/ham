@@ -2,7 +2,7 @@ import { app, BrowserWindow, clipboard, ipcMain, Menu, nativeTheme, net, protoco
 import { join, normalize, sep } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { IPC, type InvokeMethod } from '@shared/ipc'
-import type { AppState, Bounds, ContextMenuItem, FindResult, HamEvent, ImapLinkInput, MenuCommand, ProfileInput, TagColor, Theme, UpdateInfo, ViewSettings } from '@shared/types'
+import type { AppState, Bounds, ContextMenuItem, FindResult, HamEvent, ImapLinkInput, MenuCommand, ProfileInput, SlackProfile, TagColor, Theme, UpdateInfo, ViewSettings } from '@shared/types'
 import { AccountService } from './accounts'
 import { AuthClient } from './auth/client'
 import { hcaAccountExists, mockAccountExists } from './auth/check'
@@ -61,6 +61,14 @@ let inbox: InboxService
 let dashboard: DashboardManager | null = null
 let update: UpdateInfo | null = null
 
+/** Changes from the renderer: string values only, for at most 200 keys. */
+function cleanSlackChanges(changes: unknown): SlackProfile {
+  const out: SlackProfile = {}
+  if (!changes || typeof changes !== 'object') return out
+  for (const [k, v] of Object.entries(changes).slice(0, 200)) if (typeof v === 'string' && /^[\w.]{1,64}$/.test(k)) out[k] = v
+  return out
+}
+
 function send(event: HamEvent) {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send(IPC.event, event)
 }
@@ -70,6 +78,7 @@ function state(): AppState {
     accounts: accounts.list(),
     groups: accounts.groups,
     tags: accounts.tags,
+    slackFields: store.slackFields,
     info: { version: app.getVersion(), platform: process.platform, mock: MOCK },
     update: update && store.dismissedUpdate !== update.version ? update : null,
     theme: store.theme,
@@ -204,6 +213,7 @@ function registerIpc() {
         lastName: String(profile?.lastName ?? ''),
         phone: String(profile?.phone ?? '')
       }),
+    'accounts.saveSlack': (id: string, changes: SlackProfile) => accounts.saveSlack(String(id), cleanSlackChanges(changes)),
     'accounts.launchSlack': async (id: string) => {
       const account = accounts.list().find((a) => a.id === id)
       const partition = accounts.partitionOf(id)
@@ -217,6 +227,7 @@ function registerIpc() {
         onSignedIn: () => {
           if (MOCK) MockBackend.markSlackSession(partition)
           accounts.setSlack(id, { linked: true, session: true })
+          void accounts.refreshSlack(id, true)
         },
         onSignedOut: () => {
           accounts.markSignedOut(id)

@@ -671,3 +671,12 @@ textarea {
 .filter-empty { margin: 0 6px 6px; font-size: 12px; line-height: 1.45; color: var(--muted); }
 .filter-bar { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin: 0 12px 6px; padding: 6px 10px; border-radius: 8px; background: var(--accent-soft); font-size: 12px; font-weight: 500; }
 .list-empty { margin: 0; padding: 24px 12px; text-align: center; font-size: 13px; color: var(--muted); }
+
+/* Slack profile: the workspace's own fields, by Slack's sections. */
+.field-section { display: flex; flex-direction: column; gap: 16px; margin: 0; padding: 16px 0 0; border: 0; border-top: 1px solid var(--border); min-width: 0; }
+.field-section legend { padding: 0 0 12px; font-size: 13px; font-weight: 600; color: var(--muted); float: left; width: 100%; }
+.field-section legend + * { clear: both; }
+.grid-2.tight { gap: 10px; }
+.field input.mono-input { font-family: var(--mono); }
+.field-section .select { height: 42px; padding: 0 12px; border-radius: 9px; font-size: 15px; }
+.field-section .select:disabled { background: var(--field-disabled); color: var(--muted); }

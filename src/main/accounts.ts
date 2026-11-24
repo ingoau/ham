@@ -4,7 +4,9 @@
 // account has its own session partition, and the in-progress attempt is
 // persisted so a restart within the 15-minute window picks it up again.
 import { randomUUID } from 'node:crypto'
-import { TAG_COLORS, type Account, type AccountGroup, type AccountTag, type CodeResult, type PendingInfo, type ProfileInput, type RefreshResult, type SaveResult, type SlackInfo, type TagColor } from '@shared/types'
+import { TAG_COLORS, type Account, type AccountGroup, type AccountTag, type CodeResult, type PendingInfo, type ProfileInput, type RefreshResult, type SaveResult, type SlackFieldDef, type SlackInfo, type SlackProfile, type SlackSaveResult, type TagColor } from '@shared/types'
+import type { SlackOutcome } from './auth/backend'
+import { STANDARD_KEYS } from './slack-profile'
 import type { AuthBackend, BackendFactory, StartOutcome, VerifyOutcome } from './auth/backend'
 import { isValidEmail } from './auth/flow'
 import { CHECK_LIMIT, LOGIN_LIMIT, LOGIN_PER_EMAIL_LIMIT, SlidingWindow } from './limits'
@@ -50,6 +52,7 @@ export class AccountService {
   private timer: NodeJS.Timeout | null = null
   private lastRefreshAll = 0
   private ticking = false
+  private readonly slackQueue = new Map<string, Promise<unknown>>()
 
   constructor(
     private readonly store: Store,
@@ -395,7 +398,7 @@ export class AccountService {
       this.update(id, { status: 'failed', attemptPath: null, pending: { ...freshPending(), message: "Signed in, but HAM couldn't read the account details." } })
       return
     }
-    const slack = await this.slackInfo(backend, a.slack)
+    const slack = await this.slackStatus(id, backend)
     this.inbox?.forget(id)
     this.update(id, {
       ...read.profile,
@@ -407,6 +410,8 @@ export class AccountService {
       slack
     })
     this.toast(a.fresh ? `Added ${a.email}` : `Signed in again: ${a.email}`, 'success')
+    // Slack can be slow or rate limited: don't hold up the sign-in for it.
+    void this.refreshSlack(id)
   }
 
   // --- removing ------------------------------------------------------------
@@ -438,7 +443,11 @@ export class AccountService {
   async refresh(id: string): Promise<RefreshResult> {
     const a = this.store.find(id)
     if (!a) return { ok: false, reason: 'unexpected', message: 'Account not found.' }
-    if (a.status !== 'signed-in') return { ok: false, reason: 'signed-out' }
+    if (a.status !== 'signed-in') {
+      // Slack's session outlives Hack Club's: its profile can still be read.
+      if (a.slack.session) await this.refreshSlack(id)
+      return { ok: false, reason: 'signed-out' }
+    }
     const backend = this.backend(a.partition)
     const read = await backend.readProfile()
     if (read.kind === 'signed-out') {
@@ -446,12 +455,12 @@ export class AccountService {
       return { ok: false, reason: 'signed-out' }
     }
     if (read.kind === 'unexpected') return { ok: false, reason: 'network', message: read.message }
-    const next = this.update(id, {
-      ...read.profile,
-      expiresAt: (await backend.sessionExpiry()) ?? a.expiresAt,
-      slack: await this.slackInfo(backend, a.slack)
-    })!
-    return { ok: true, account: toPublic(next) }
+    const expiresAt = (await backend.sessionExpiry()) ?? a.expiresAt
+    const slack = await this.slackStatus(id, backend)
+    this.update(id, { ...read.profile, expiresAt, slack })
+    await this.refreshSlack(id)
+    const next = this.store.find(id)
+    return next ? { ok: true, account: toPublic(next) } : { ok: false, reason: 'unexpected', message: 'Account not found.' }
   }
 
   /** Refresh every signed-in account, at most every five minutes unless forced. */
@@ -460,7 +469,9 @@ export class AccountService {
     this.lastRefreshAll = Date.now()
     this.markExpired()
     const signedIn = this.store.accounts.filter((a) => a.status === 'signed-in')
-    await Promise.allSettled(signedIn.map((a) => this.refresh(a.id)))
+    // A Slack session outlives the Hack Club one, so signed-out accounts can still read Slack.
+    const slackOnly = this.store.accounts.filter((a) => a.status === 'signed-out' && a.slack.session)
+    await Promise.allSettled([...signedIn.map((a) => this.refresh(a.id)), ...slackOnly.map((a) => this.refreshSlack(a.id))])
   }
 
   /** Mark accounts whose session cookie has passed its expiry as signed out. */
@@ -493,11 +504,95 @@ export class AccountService {
     }
   }
 
-  /** Slack status from HCA's /slack-id plus the partition's Slack cookie. */
-  private async slackInfo(backend: AuthBackend, prev: SlackInfo): Promise<SlackInfo> {
-    const [session, slackId] = await Promise.all([backend.hasSlackSession(), backend.slackId()])
-    if (slackId === undefined) return { ...prev, session, linked: session ? true : prev.linked }
-    return { ...prev, session, linked: slackId !== null || session, id: slackId ?? undefined }
+  /**
+   * Whether the account is on Slack (HCA's /slack-id) and has a Slack cookie,
+   * applied to its latest Slack info.
+   */
+  private async slackStatus(id: string, backend: AuthBackend): Promise<SlackInfo> {
+    const [cookie, slackId] = await Promise.all([backend.hasSlackSession(), backend.slackId()])
+    const prev = this.store.find(id)?.slack ?? noSlack()
+    if (slackId === undefined) return { ...prev, session: cookie, linked: cookie ? true : prev.linked }
+    return { ...prev, session: cookie, linked: slackId !== null || cookie, id: slackId ?? prev.id }
+  }
+
+  /** Fold a Slack read into the account's latest Slack info (and the app's field list). */
+  private applySlackRead(id: string, read: SlackOutcome): StoredAccount | null {
+    const a = this.store.find(id)
+    if (!a) return null
+    if (read.kind === 'signed-out') return this.update(id, { slack: { ...a.slack, session: false } })
+    if (read.kind !== 'ok') return a
+    this.setSlackFields(read.fields)
+    const slack: SlackInfo = { ...a.slack, linked: true, session: true, id: read.userId, profile: read.profile, users: read.users, fetchedAt: new Date().toISOString() }
+    return this.update(id, { slack })
+  }
+
+  private setSlackFields(fields: SlackFieldDef[]) {
+    if (JSON.stringify(fields) !== JSON.stringify(this.store.slackFields)) this.store.slackFields = fields
+  }
+
+  /** Run Slack reads and saves for one account one at a time, so an older read never lands on a newer save. */
+  private slackLocked<T>(id: string, fn: () => Promise<T>): Promise<T> {
+    const run = (this.slackQueue.get(id) ?? Promise.resolve()).then(fn, fn)
+    this.slackQueue.set(id, run.catch(() => undefined))
+    return run
+  }
+
+  /**
+   * Read the Slack profile again. `fresh` drops the cached token first: after
+   * Launch Slack, the session may belong to a different sign-in.
+   */
+  refreshSlack(id: string, fresh = false): Promise<void> {
+    return this.slackLocked(id, async () => {
+      const a = this.store.find(id)
+      if (!a) return
+      const backend = this.backend(a.partition)
+      if (!(await backend.hasSlackSession())) {
+        if (a.slack.session) this.setSlack(id, { session: false })
+        return
+      }
+      this.applySlackRead(id, await backend.readSlack(fresh))
+    })
+  }
+
+  /** A reason these changes can't be saved, or null. */
+  private slackChangeProblem(a: StoredAccount, changes: SlackProfile): string | null {
+    const fields = new Map(this.store.slackFields.map((f) => [f.id, f]))
+    for (const key of Object.keys(changes)) {
+      if ((STANDARD_KEYS as readonly string[]).includes(key) || ['tz', 'title', 'status_expiration'].includes(key)) continue
+      const f = fields.get(key.split('.')[0])
+      if (!f || !f.editable || (f.kind === 'link') !== key.includes('.')) return 'That Slack field can’t be changed here.'
+    }
+    if ('real_name' in changes && !changes.real_name.trim()) return "Full name can't be blank."
+    for (const f of fields.values()) {
+      if (f.kind !== 'link' || !(`${f.id}.text` in changes || `${f.id}.url` in changes)) continue
+      const value = (part: string) => (changes[`${f.id}.${part}`] ?? a.slack.profile[`${f.id}.${part}`] ?? '').trim()
+      if (value('text') && !value('url')) return `${f.label}: add a URL for the display text.`
+    }
+    return null
+  }
+
+  saveSlack(id: string, changes: SlackProfile): Promise<SlackSaveResult> {
+    return this.slackLocked(id, async (): Promise<SlackSaveResult> => {
+      const a = this.store.find(id)
+      if (!a) return { ok: false, reason: 'rejected', message: 'Account not found.' }
+      if (!a.slack.session) return { ok: false, reason: 'slack-signed-out' }
+      const problem = this.slackChangeProblem(a, changes)
+      if (problem) return { ok: false, reason: 'rejected', message: problem }
+      if (Object.keys(changes).length === 0) return { ok: true, account: toPublic(a) }
+      const result = await this.backend(a.partition).saveSlack(changes)
+      const next = this.applySlackRead(id, result)
+      if (!next) return { ok: false, reason: 'rejected', message: 'Account not found.' }
+      switch (result.kind) {
+        case 'ok':
+          return { ok: true, account: toPublic(next) }
+        case 'signed-out':
+          return { ok: false, reason: 'slack-signed-out' }
+        default:
+          // Part of the save may have landed before the failure: read back what Slack has now.
+          queueMicrotask(() => void this.refreshSlack(id))
+          return { ok: false, reason: result.kind, message: result.message }
+      }
+    })
   }
 
   /** A name only HAM shows. Empty clears it. */

@@ -1,6 +1,6 @@
 // The interface the account service talks to. `AuthClient` implements it
 // against auth.hackclub.com; `MockBackend` implements it for demos and tests.
-import type { ProfileInput } from '@shared/types'
+import type { ProfileInput, SlackFieldDef, SlackProfile } from '@shared/types'
 import type { ParsedProfile } from './pages'
 
 export type StartOutcome =
@@ -30,6 +30,12 @@ export type SaveOutcome =
   | { kind: 'signed-out' }
   | { kind: 'unexpected'; message: string }
 
+export type SlackOutcome =
+  | { kind: 'ok'; userId: string; profile: SlackProfile; fields: SlackFieldDef[]; users: Record<string, string> }
+  /** No working Slack session in the partition. */
+  | { kind: 'signed-out' }
+  | { kind: 'rejected' | 'network'; message: string }
+
 export interface AuthBackend {
   startLogin(email: string): Promise<StartOutcome>
   resend(): Promise<StartOutcome>
@@ -51,6 +57,10 @@ export interface AuthBackend {
   hasSlackSession(): Promise<boolean>
   /** The account's Hack Club Slack ID from HCA (null: none linked; undefined: couldn't tell). */
   slackId(): Promise<string | null | undefined>
+  /** Read the Slack profile with the partition's Slack session. */
+  readSlack(fresh?: boolean): Promise<SlackOutcome>
+  /** Save changed Slack profile values (keyed like SlackProfile), then read the profile back. */
+  saveSlack(changes: SlackProfile): Promise<SlackOutcome>
 }
 
 export type BackendFactory = (partition: string) => AuthBackend

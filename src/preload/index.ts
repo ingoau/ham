@@ -17,6 +17,7 @@ const api: HamApi = {
     remove: (id) => call('accounts.remove', id),
     refresh: (id) => call('accounts.refresh', id),
     save: (id, profile) => call('accounts.save', id, profile),
+    saveSlack: (id, changes) => call('accounts.saveSlack', id, changes),
     launchSlack: (id) => call('accounts.launchSlack', id),
     setLocalName: (id, name) => call('accounts.setLocalName', id, name),
     setPinned: (ids, pinned) => call('accounts.setPinned', ids, pinned),

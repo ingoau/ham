@@ -32,17 +32,46 @@ export interface PendingInfo {
   expired: boolean
 }
 
-/** Slack profile values, keyed by the bulk-edit field keys (real_name, display_name, …). */
+/**
+ * Slack profile values, keyed by field id: the standard fields by name
+ * (real_name, display_name, title, pronouns, tz, status_emoji, status_text) and
+ * the workspace's own fields by Slack element id. A link field has two values,
+ * "<id>.text" and "<id>.url"; a people field holds comma-separated user ids.
+ */
 export type SlackProfile = Record<string, string>
+
+export type SlackFieldKind = 'text' | 'date' | 'link' | 'person'
+
+/** One of the workspace's own profile fields, as Slack lists it (users.profile.getSections). */
+export interface SlackFieldDef {
+  /** Slack's element id ("Pe…"). */
+  id: string
+  /** The section it sits in ("Ps…"). Slack saves a section at a time. */
+  section: string
+  sectionLabel: string
+  /** Slack's section type: HEADER fields (name pronunciation) belong with the name, not under a heading. */
+  sectionType?: string
+  label: string
+  hint: string
+  kind: SlackFieldKind
+  /** False for fields only admins (or SCIM) can set. */
+  editable: boolean
+  /** Its name in templates, under account.slack.fields (link fields add _text and _url). */
+  key: string
+}
 
 export interface SlackInfo {
   /** Whether the account has a Hack Club Slack user (from HCA's /slack-id). null = not known yet. */
   linked: boolean | null
   /** The Slack user id, when linked. */
   id?: string
-  /** Whether this account's partition holds a Slack session cookie. */
+  /** Whether this account's partition holds a working Slack session. */
   session: boolean
   profile: SlackProfile
+  /** Names for the user ids in people fields (manager and so on). */
+  users?: Record<string, string>
+  /** When the profile was last read from Slack. */
+  fetchedAt?: string
 }
 
 export interface Account {
@@ -158,6 +187,8 @@ export interface AccountTag {
 
 export interface AppState {
   accounts: Account[]
+  /** Hack Club Slack's own profile fields, from the last profile HAM read. Empty until then. */
+  slackFields: SlackFieldDef[]
   /** The user's groups, in display order. */
   groups: AccountGroup[]
   /** The user's tags, in display order. */
@@ -182,6 +213,12 @@ export type SaveResult =
   | { ok: false; reason: 'validation'; messages: string[] }
   | { ok: false; reason: 'signed-out' }
   | { ok: false; reason: 'network' | 'unexpected'; message: string }
+
+export type SlackSaveResult =
+  | { ok: true; account: Account }
+  /** Slack's session in this account has ended: open Slack again. */
+  | { ok: false; reason: 'slack-signed-out' }
+  | { ok: false; reason: 'rejected' | 'network'; message: string }
 
 export type RefreshResult =
   | { ok: true; account: Account }

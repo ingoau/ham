@@ -58,7 +58,7 @@ try {
   const phone = page.getByLabel('Phone number')
   const original = await phone.inputValue()
   await phone.fill('+1 (555) 010-0000')
-  await page.getByRole('button', { name: 'Save' }).click()
+  await page.getByRole('form', { name: 'Profile', exact: true }).getByRole('button', { name: 'Save' }).click()
   await page.getByText('Saved to auth.hackclub.com').waitFor({ timeout: 30_000 })
   log('saved test phone; field now', await phone.inputValue())
   await page.getByRole('button', { name: 'Refresh' }).click()
@@ -66,7 +66,7 @@ try {
   log('after refresh phone is', await phone.inputValue())
   await phone.fill(original)
   if (original !== '+1 (555) 010-0000') {
-    await page.getByRole('button', { name: 'Save' }).click()
+    await page.getByRole('form', { name: 'Profile', exact: true }).getByRole('button', { name: 'Save' }).click()
     await page.waitForFunction(() => document.querySelector('.form-actions .status') === null, null, { timeout: 30_000 })
   }
   log('restored phone to', JSON.stringify(await phone.inputValue()))
@@ -75,7 +75,7 @@ try {
   const last = page.getByLabel('Last name')
   const lastName = await last.inputValue()
   await last.fill('')
-  log('save disabled with blank last name:', await page.getByRole('button', { name: 'Save' }).isDisabled())
+  log('save disabled with blank last name:', await page.getByRole('form', { name: 'Profile', exact: true }).getByRole('button', { name: 'Save' }).isDisabled())
   await last.fill(lastName)
 
   // Dashboard and lockdown.
