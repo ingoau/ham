@@ -43,6 +43,7 @@ export function SignOutDialog({ open = true, accounts, onConfirm, onCancel }: Pr
   const [busy, setBusy] = useState(false)
   const { title, body, action } = copy(accounts)
   const many = accounts.length > 1
+  const signingOut = accounts.some((a) => a.status === 'signed-in')
 
   return (
     <AlertDialog.Root open={open} onOpenChange={(open) => !open && !busy && onCancel()}>
@@ -58,7 +59,7 @@ export function SignOutDialog({ open = true, accounts, onConfirm, onCancel }: Pr
               {accounts.map((a) => (
                 <li key={a.id}>
                   <span className="email">{a.email}</span>
-                  {a.status !== 'signed-in' && <span className="muted small">{isPending(a.status) ? 'Signing in' : 'Signed out'}</span>}
+                  {a.status !== 'signed-in' && <span className="muted small">{a.status === 'failed' || a.status === 'stuck' ? 'Couldn’t sign in' : isPending(a.status) ? 'Signing in' : 'Signed out'}</span>}
                 </li>
               ))}
             </ul>
@@ -81,7 +82,7 @@ export function SignOutDialog({ open = true, accounts, onConfirm, onCancel }: Pr
                 }
               }}
             >
-              {busy ? 'Signing out…' : action}
+              {busy ? (signingOut ? 'Signing out…' : 'Removing…') : action}
             </AlertDialog.Action>
           </div>
         </AlertDialog.Content>
