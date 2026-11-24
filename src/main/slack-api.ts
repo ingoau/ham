@@ -133,6 +133,19 @@ export class SlackApi {
   /** Save changed values (keyed like SlackProfile), then read the profile back. */
   async save(changes: SlackProfile): Promise<SlackRead> {
     const { userId } = await this.getAuth()
+    const sections = sectionsOf(await this.call('users.profile.getSections', { user: userId }))
+    const touched = changedElements(sections, changes)
+    // Build every section first, so one HAM can't send back stops the save before anything is written.
+    const writes: { section: string; elements: object[] }[] = []
+    for (const s of sections) {
+      if (!s.sectionId || !(s.profileElements ?? []).some((e) => e.elementId && touched.has(e.elementId))) continue
+      try {
+        writes.push({ section: s.sectionId, elements: sectionElements(s, changes) })
+      } catch (err) {
+        if (err instanceof UnknownElementError) throw new SlackRejected(err.message)
+        throw err
+      }
+    }
     const standard: Record<string, string> = {}
     for (const key of STANDARD_KEYS) if (key in changes) standard[key] = changes[key].trim()
     if (Object.keys(standard).length) {
@@ -141,19 +154,7 @@ export class SlackApi {
     }
     if ('tz' in changes && changes.tz.trim()) await this.call('users.prefs.set', { name: 'tz', value: changes.tz.trim() })
 
-    const sections = sectionsOf(await this.call('users.profile.getSections', { user: userId }))
-    const touched = changedElements(sections, changes)
-    for (const s of sections) {
-      if (!s.sectionId || !(s.profileElements ?? []).some((e) => e.elementId && touched.has(e.elementId))) continue
-      let elements: object[]
-      try {
-        elements = sectionElements(s, changes)
-      } catch (err) {
-        if (err instanceof UnknownElementError) throw new SlackRejected(err.message)
-        throw err
-      }
-      await this.call('users.profile.setSections', { user: userId, section: s.sectionId, elements: JSON.stringify(elements) })
-    }
+    for (const w of writes) await this.call('users.profile.setSections', { user: userId, section: w.section, elements: JSON.stringify(w.elements) })
     return this.read()
   }
 }

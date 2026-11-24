@@ -1054,6 +1054,8 @@ export function App() {
                   <Tabs.Content value="profile" className="tab-panel">
                     <ProfileForm ref={formRef} account={selected} onSaved={onSaved} />
                     <SlackProfileCard
+                      // One form per account: a save that finishes after switching can't touch another account's form.
+                      key={selected.id}
                       ref={slackRef}
                       account={selected}
                       custom={customFields}

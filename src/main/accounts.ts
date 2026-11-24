@@ -443,7 +443,11 @@ export class AccountService {
   async refresh(id: string): Promise<RefreshResult> {
     const a = this.store.find(id)
     if (!a) return { ok: false, reason: 'unexpected', message: 'Account not found.' }
-    if (a.status !== 'signed-in') return { ok: false, reason: 'signed-out' }
+    if (a.status !== 'signed-in') {
+      // Slack's session outlives Hack Club's: its profile can still be read.
+      if (a.slack.session) await this.refreshSlack(id)
+      return { ok: false, reason: 'signed-out' }
+    }
     const backend = this.backend(a.partition)
     const read = await backend.readProfile()
     if (read.kind === 'signed-out') {
