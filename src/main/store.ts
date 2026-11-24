@@ -45,6 +45,8 @@ interface StoreFile {
   theme: Theme
   view: ViewSettings
   inbox: InboxSettings | null
+  /** Sign accounts on Slack in to Slack automatically. */
+  autoSlack: boolean
   /** Timestamps of recent POST /login and code checks, for the rate limits. */
   loginLog: number[]
   checkLog: number[]
@@ -93,6 +95,7 @@ function migrate(raw: Record<string, unknown>): StoreFile {
     theme: (raw.theme as Theme) ?? 'system',
     view: migrateView(view),
     inbox: (raw.inbox as InboxSettings | null) ?? null,
+    autoSlack: raw.autoSlack === true,
     loginLog: (raw.loginLog as number[]) ?? [],
     checkLog: (raw.checkLog as number[]) ?? []
   }
@@ -257,6 +260,14 @@ export class Store {
   }
   set inbox(inbox: InboxSettings | null) {
     this.data.inbox = inbox
+    this.flush()
+  }
+
+  get autoSlack(): boolean {
+    return this.data.autoSlack
+  }
+  set autoSlack(on: boolean) {
+    this.data.autoSlack = on
     this.flush()
   }
 

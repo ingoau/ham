@@ -1,6 +1,6 @@
 import { useState, type FormEvent } from 'react'
 import * as Dialog from '@radix-ui/react-dialog'
-import { X } from 'lucide-react'
+import { Check, X } from 'lucide-react'
 import { toast } from 'sonner'
 import type { AppState, Theme } from '@shared/types'
 
@@ -136,6 +136,16 @@ export function SettingsDialog({ open = true, app, onClose }: { open?: boolean; 
                 </div>
               </form>
             )}
+          </section>
+
+          <section className="settings-section" aria-labelledby="set-slack">
+            <h3 id="set-slack">Slack</h3>
+            <button className="setting-check" role="checkbox" aria-checked={app.autoSlack} onClick={() => void window.ham.settings.setAutoSlack(!app.autoSlack)}>
+              <span className={`checkbox${app.autoSlack ? ' on' : ''}`} aria-hidden>
+                {app.autoSlack && <Check size={12} strokeWidth={3} />}
+              </span>
+              Sign in to Slack automatically
+            </button>
           </section>
 
           <section className="settings-section" aria-labelledby="set-about">

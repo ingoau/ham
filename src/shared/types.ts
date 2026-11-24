@@ -72,6 +72,8 @@ export interface SlackInfo {
   users?: Record<string, string>
   /** When the profile was last read from Slack. */
   fetchedAt?: string
+  /** Signed out of Slack in HAM: automatic Slack sign-in leaves it alone until Slack is opened again. */
+  keepSignedOut?: boolean
 }
 
 /** A fresh Slack sign-in's web client credentials, for use outside HAM. HAM doesn't keep them. */
@@ -211,6 +213,8 @@ export interface AppState {
   theme: Theme
   view: ViewSettings
   inbox: InboxStatus
+  /** Sign accounts that are on Slack in to Slack automatically, in the background. */
+  autoSlack: boolean
 }
 
 /** One entry in a native context menu built by the renderer. */
@@ -226,6 +230,16 @@ export type SaveResult =
   | { ok: false; reason: 'validation'; messages: string[] }
   | { ok: false; reason: 'signed-out' }
   | { ok: false; reason: 'network' | 'unexpected'; message: string }
+
+/** How a background Slack sign-in went. */
+export type SlackSignInResult =
+  | 'signed-in'
+  /** It already had a Slack session. */
+  | 'already'
+  /** Its Hack Club session has ended, so it can't sign in to Slack. */
+  | 'signed-out'
+  /** Slack wanted more than the SAML sign-in, or took too long. Launch Slack to finish. */
+  | 'failed'
 
 export type SlackSaveResult =
   | { ok: true; account: Account }

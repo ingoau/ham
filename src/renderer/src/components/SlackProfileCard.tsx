@@ -1,5 +1,5 @@
 import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState, type FormEvent, type InputHTMLAttributes } from 'react'
-import { Info, MessageSquare } from 'lucide-react'
+import { Info, LogOut, MessageSquare } from 'lucide-react'
 import { SLACK_PROFILE_FIELDS, checkValue, type FieldDef } from '@shared/fields'
 import type { Account, SlackProfile } from '@shared/types'
 import { bestName } from '../util'
@@ -16,6 +16,8 @@ interface Props {
   /** Every account, to suggest people for fields such as Manager. */
   accounts: Account[]
   onLaunch(): void
+  /** Sign out of Slack only. */
+  onSignOut(): Promise<void>
   onSaved(text: string, kind: 'success' | 'error'): void
 }
 
@@ -67,7 +69,8 @@ function draftOf(account: Account, fields: FieldDef[]): SlackProfile {
 }
 
 /** The account's Hack Club Slack profile, saved with its own Slack session. */
-export const SlackProfileCard = forwardRef<SlackProfileHandle, Props>(function SlackProfileCard({ account, custom, accounts, onLaunch, onSaved }, ref) {
+export const SlackProfileCard = forwardRef<SlackProfileHandle, Props>(function SlackProfileCard({ account, custom, accounts, onLaunch, onSignOut, onSaved }, ref) {
+  const [signingOut, setSigningOut] = useState(false)
   const fields = useMemo(() => [...SLACK_PROFILE_FIELDS, ...custom], [custom])
   const [draft, setDraft] = useState<SlackProfile>(() => draftOf(account, fields))
   const [saving, setSaving] = useState(false)
@@ -302,7 +305,23 @@ export const SlackProfileCard = forwardRef<SlackProfileHandle, Props>(function S
 
   return (
     <form className="card" onSubmit={save} aria-labelledby="slack-heading">
-      <h2 id="slack-heading">Slack profile</h2>
+      <div className="card-title-row">
+        <h2 id="slack-heading">Slack profile</h2>
+        {session && (
+          <button
+            type="button"
+            className="btn btn-small"
+            disabled={signingOut || saving}
+            onClick={() => {
+              setSigningOut(true)
+              void onSignOut().finally(() => setSigningOut(false))
+            }}
+          >
+            <LogOut size={15} aria-hidden />
+            {signingOut ? 'Signing out…' : 'Sign out of Slack'}
+          </button>
+        )}
+      </div>
 
       {!session && (
         <div className="banner info">

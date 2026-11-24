@@ -149,6 +149,27 @@ try {
   await page.getByText(/^Updated 1 account$/).waitFor({ state: 'detached', timeout: 20_000 })
   step('bulk edits a Slack field, skipping accounts without a Slack session')
 
+  // Automatic Slack sign-in (hidden window; instant in demo mode), then signing out of Slack only.
+  await page.getByRole('button', { name: 'Settings' }).click()
+  await page.getByRole('checkbox', { name: 'Sign in to Slack automatically' }).click()
+  await page.getByRole('checkbox', { name: 'Sign in to Slack automatically', checked: true }).waitFor({ timeout: 5_000 })
+  await page.keyboard.press('Escape')
+  await row('fiona.leads@example.org').locator('.row-main').click()
+  await slackCard.getByRole('button', { name: 'Sign out of Slack' }).waitFor({ timeout: 10_000 })
+  step('signs in to Slack automatically')
+  await slackCard.getByRole('button', { name: 'Sign out of Slack' }).click()
+  await page.getByText('Signed out of Slack: fiona.leads@example.org').waitFor({ timeout: 10_000 })
+  await slackCard.getByRole('button', { name: 'Launch Slack' }).waitFor({ timeout: 5_000 })
+  // Automatic sign-in leaves it signed out.
+  await page.getByRole('button', { name: 'Refresh' }).click()
+  await page.getByText('Profile is up to date').waitFor({ timeout: 10_000 })
+  await page.waitForTimeout(1_500)
+  if (await slackCard.getByRole('button', { name: 'Sign out of Slack' }).count()) throw new Error('signed back in to Slack after signing out')
+  await page.getByRole('button', { name: 'Settings' }).click()
+  await page.getByRole('checkbox', { name: 'Sign in to Slack automatically' }).click()
+  await page.keyboard.press('Escape')
+  step('signs out of Slack only, and stays signed out')
+
   // Select a range and bulk edit first names, then undo.
   await row('Fiona Hackworth').first().locator('.row-check').click()
   await row('Orpheus Dino').locator('.row-check').click({ modifiers: ['Shift'] })
