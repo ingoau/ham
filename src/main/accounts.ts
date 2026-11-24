@@ -4,7 +4,7 @@
 // account has its own session partition, and the in-progress attempt is
 // persisted so a restart within the 15-minute window picks it up again.
 import { randomUUID } from 'node:crypto'
-import { TAG_COLORS, type Account, type AccountGroup, type AccountTag, type CodeResult, type PendingInfo, type ProfileInput, type RefreshResult, type SaveResult, type SlackFieldDef, type SlackInfo, type SlackProfile, type SlackSaveResult, type TagColor } from '@shared/types'
+import { TAG_COLORS, type Account, type AccountGroup, type AccountTag, type CodeResult, type PendingInfo, type ProfileInput, type RefreshResult, type SaveResult, type SlackFieldDef, type SlackInfo, type SlackProfile, type SlackSaveResult, type SlackSignInResult, type TagColor } from '@shared/types'
 import type { SlackOutcome } from './auth/backend'
 import { STANDARD_KEYS } from './slack-profile'
 import type { AuthBackend, BackendFactory, StartOutcome, VerifyOutcome } from './auth/backend'
@@ -16,6 +16,13 @@ import type { Store, StoredAccount } from './store'
 export const ATTEMPT_MS = 15 * 60 * 1000
 const REFRESH_INTERVAL = 5 * 60 * 1000
 const AUTO_SUBMIT_DELAY = 700
+/** Hidden Slack sign-ins running at once. */
+const SLACK_SIGN_IN_LIMIT = 3
+/** How long automatic Slack sign-in waits before trying an account again after it failed. */
+const AUTO_SLACK_RETRY = 30 * 60 * 1000
+
+/** Signs a partition in to Slack in a hidden window (see slack.ts). */
+export type SlackSignIn = (partition: string) => Promise<'signed-in' | 'signed-out' | 'failed'>
 
 export interface InboxHooks {
   readonly connected: boolean
@@ -53,6 +60,11 @@ export class AccountService {
   private lastRefreshAll = 0
   private ticking = false
   private readonly slackQueue = new Map<string, Promise<unknown>>()
+  private slackSignInHook: SlackSignIn | null = null
+  private readonly slackSigningIn = new Map<string, Promise<SlackSignInResult>>()
+  private readonly autoSlackFailed = new Map<string, number>()
+  private slackSlots = 0
+  private readonly slackWaiters: (() => void)[] = []
 
   constructor(
     private readonly store: Store,
@@ -66,6 +78,10 @@ export class AccountService {
 
   setInbox(inbox: InboxHooks) {
     this.inbox = inbox
+  }
+
+  setSlackSignIn(fn: SlackSignIn) {
+    this.slackSignInHook = fn
   }
 
   list(): Account[] {
@@ -412,6 +428,7 @@ export class AccountService {
     this.toast(a.fresh ? `Added ${a.email}` : `Signed in again: ${a.email}`, 'success')
     // Slack can be slow or rate limited: don't hold up the sign-in for it.
     void this.refreshSlack(id)
+    this.autoSignInSlack([id])
   }
 
   // --- removing ------------------------------------------------------------
@@ -459,6 +476,7 @@ export class AccountService {
     const slack = await this.slackStatus(id, backend)
     this.update(id, { ...read.profile, expiresAt, slack })
     await this.refreshSlack(id)
+    this.autoSignInSlack([id])
     const next = this.store.find(id)
     return next ? { ok: true, account: toPublic(next) } : { ok: false, reason: 'unexpected', message: 'Account not found.' }
   }
@@ -707,6 +725,86 @@ export class AccountService {
   setSlack(id: string, patch: Partial<SlackInfo>) {
     const a = this.store.find(id)
     if (a) this.update(id, { slack: { ...a.slack, ...patch } })
+  }
+
+  // --- Slack sign-in and sign-out -----------------------------------------
+
+  /** Sign an account in to Slack in a hidden window. At most a few run at once; the rest wait their turn. */
+  signInSlack(id: string, auto = false): Promise<SlackSignInResult> {
+    const running = this.slackSigningIn.get(id)
+    if (running) return running
+    const run = this.runSlackSignIn(id, auto).finally(() => this.slackSigningIn.delete(id))
+    this.slackSigningIn.set(id, run)
+    return run
+  }
+
+  private async runSlackSignIn(id: string, auto: boolean): Promise<SlackSignInResult> {
+    const first = this.store.find(id)
+    if (!first || first.status !== 'signed-in') return 'signed-out'
+    if (await this.backend(first.partition).hasSlackSession()) {
+      this.setSlack(id, { session: true, keepSignedOut: false })
+      return 'already'
+    }
+    if (!this.slackSignInHook) return 'failed'
+    await this.takeSlackSlot()
+    let result: 'signed-in' | 'signed-out' | 'failed'
+    try {
+      // Things may have changed while it waited for a turn.
+      const a = this.store.find(id)
+      if (!a || a.status !== 'signed-in') return 'signed-out'
+      if (auto && (!this.store.autoSlack || a.slack.keepSignedOut || a.slack.session)) return 'failed'
+      result = await this.slackSignInHook(a.partition)
+    } finally {
+      this.releaseSlackSlot()
+    }
+    const a = this.store.find(id)
+    if (!a) return 'failed'
+    if (result === 'signed-in' && !(await this.backend(a.partition).hasSlackSession())) result = 'failed'
+    if (result === 'signed-in') {
+      this.setSlack(id, { linked: true, session: true, keepSignedOut: false })
+      void this.refreshSlack(id, true)
+    } else if (result === 'signed-out') this.markSignedOut(id)
+    return result
+  }
+
+  private async takeSlackSlot() {
+    while (this.slackSlots >= SLACK_SIGN_IN_LIMIT) await new Promise<void>((r) => this.slackWaiters.push(r))
+    this.slackSlots++
+  }
+
+  private releaseSlackSlot() {
+    this.slackSlots--
+    this.slackWaiters.shift()?.()
+  }
+
+  /**
+   * With automatic Slack sign-in on, sign accounts that are on Slack but not
+   * signed in to it in to Slack (all of them, or just `ids`). Never makes a
+   * Slack account, and leaves alone accounts signed out of Slack in HAM.
+   */
+  autoSignInSlack(ids?: string[]) {
+    if (!this.store.autoSlack || !this.slackSignInHook) return
+    const now = Date.now()
+    for (const a of this.store.accounts) {
+      if (ids && !ids.includes(a.id)) continue
+      if (a.status !== 'signed-in' || a.slack.linked !== true || a.slack.session || a.slack.keepSignedOut) continue
+      if (now - (this.autoSlackFailed.get(a.id) ?? 0) < AUTO_SLACK_RETRY) continue
+      void this.signInSlack(a.id, true).then((r) => {
+        if (r === 'failed') this.autoSlackFailed.set(a.id, Date.now())
+        else this.autoSlackFailed.delete(a.id)
+      })
+    }
+  }
+
+  /** Sign out of Slack only. Automatic sign-in leaves the account alone until Slack is opened again. */
+  signOutSlack(id: string): Promise<void> {
+    return this.slackLocked(id, async () => {
+      const a = this.store.find(id)
+      if (!a) return
+      await this.backend(a.partition).signOutSlack()
+      this.autoSlackFailed.delete(id)
+      this.setSlack(id, { session: false, keepSignedOut: true })
+    })
   }
 
   markSignedOut(id: string) {

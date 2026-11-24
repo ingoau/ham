@@ -11,6 +11,7 @@ import type {
   SaveResult,
   SlackProfile,
   SlackSaveResult,
+  SlackSignInResult,
   TagColor,
   Theme,
   UpdateInfo,
@@ -38,6 +39,10 @@ export interface HamApi {
     /** Save changed Slack profile values (keyed like SlackProfile) with the account's Slack session. */
     saveSlack(accountId: string, changes: SlackProfile): Promise<SlackSaveResult>
     launchSlack(accountId: string): Promise<void>
+    /** Sign in to Slack in a hidden window (SAML through Hack Club), which closes once Slack has signed in. */
+    signInSlack(accountId: string): Promise<SlackSignInResult>
+    /** Sign out of Slack only; the Hack Club session stays. */
+    signOutSlack(accountId: string): Promise<void>
     /** Set the name only HAM shows; empty clears it. */
     setLocalName(accountId: string, name: string): Promise<void>
     setPinned(accountIds: string[], pinned: boolean): Promise<void>
@@ -77,6 +82,7 @@ export interface HamApi {
   settings: {
     setTheme(theme: Theme): Promise<void>
     setView(view: ViewSettings): Promise<void>
+    setAutoSlack(on: boolean): Promise<void>
     checkForUpdates(): Promise<UpdateCheck>
   }
 
@@ -121,6 +127,8 @@ export type InvokeMethod =
   | 'accounts.save'
   | 'accounts.saveSlack'
   | 'accounts.launchSlack'
+  | 'accounts.signInSlack'
+  | 'accounts.signOutSlack'
   | 'accounts.setLocalName'
   | 'accounts.setPinned'
   | 'accounts.reorder'
@@ -138,6 +146,7 @@ export type InvokeMethod =
   | 'copyText'
   | 'settings.setTheme'
   | 'settings.setView'
+  | 'settings.setAutoSlack'
   | 'settings.checkForUpdates'
   | 'inbox.link'
   | 'inbox.unlink'

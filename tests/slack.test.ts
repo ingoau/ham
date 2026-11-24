@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 
 vi.mock('electron', () => ({ BrowserWindow: class {}, nativeTheme: {}, shell: {} }))
-const { judgeSlackNavigation, chromeUserAgent } = await import('../src/main/slack')
+const { judgeSlackNavigation, chromeUserAgent, isSlackSessionCookie } = await import('../src/main/slack')
 
 describe('judgeSlackNavigation', () => {
   it.each([
@@ -33,5 +33,15 @@ describe('chromeUserAgent', () => {
   it('drops the Electron and app tokens', () => {
     const ua = 'Mozilla/5.0 (Macintosh) AppleWebKit/537.36 (KHTML, like Gecko) ham/0.1.1 Chrome/140.0.0.0 Electron/45.4.1 Safari/537.36'
     expect(chromeUserAgent(ua)).toBe('Mozilla/5.0 (Macintosh) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/140.0.0.0 Safari/537.36')
+  })
+})
+
+describe('isSlackSessionCookie', () => {
+  it('matches only d on slack.com', () => {
+    expect(isSlackSessionCookie({ name: 'd', domain: '.slack.com' })).toBe(true)
+    expect(isSlackSessionCookie({ name: 'd', domain: 'app.slack.com' })).toBe(true)
+    expect(isSlackSessionCookie({ name: 'd-s', domain: '.slack.com' })).toBe(false)
+    expect(isSlackSessionCookie({ name: 'd', domain: '.auth.hackclub.com' })).toBe(false)
+    expect(isSlackSessionCookie({ name: 'd', domain: 'slack.com.evil.example' })).toBe(false)
   })
 })

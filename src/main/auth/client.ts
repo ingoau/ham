@@ -273,6 +273,22 @@ export class AuthClient implements AuthBackend {
     return slackGuard(() => this.slack.save(changes))
   }
 
+  async signOutSlack(): Promise<void> {
+    await this.slack.signOut()
+    const cookies = await this.ses.cookies.get({})
+    await Promise.all(
+      cookies
+        .filter((c) => isSlackDomain(c.domain ?? ''))
+        .map((c) => this.ses.cookies.remove(`https://${(c.domain ?? '').replace(/^\./, '')}${c.path ?? '/'}`, c.name).catch(() => undefined))
+    )
+    await Promise.all(
+      SLACK_ORIGINS.map((origin) =>
+        this.ses.clearStorageData({ origin, storages: ['localstorage', 'indexdb', 'serviceworkers', 'cachestorage', 'filesystem'] }).catch(() => undefined)
+      )
+    )
+    this.slack.reset()
+  }
+
   /** The current CSRF token, fetching the home page if there isn't one yet. */
   async csrfToken(): Promise<string | null> {
     if (!this.csrf) await this.get('/')
@@ -287,6 +303,9 @@ export class AuthClient implements AuthBackend {
     await this.ses.clearCache()
   }
 }
+
+const SLACK_ORIGINS = ['https://app.slack.com', 'https://hackclub.slack.com', 'https://hackclub.enterprise.slack.com', 'https://slack.com']
+const isSlackDomain = (domain: string) => /(^|\.)slack\.com$/i.test(domain.replace(/^\./, ''))
 
 function expired(): VerifyOutcome {
   return { kind: 'unexpected', message: 'This sign-in has expired. Start again.' }

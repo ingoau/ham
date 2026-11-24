@@ -59,6 +59,8 @@ export interface AuthBackend {
   slackId(): Promise<string | null | undefined>
   /** Read the Slack profile with the partition's Slack session. */
   readSlack(fresh?: boolean): Promise<SlackOutcome>
+  /** End the Slack session and wipe Slack's cookies and storage from the partition. Hack Club's session stays. */
+  signOutSlack(): Promise<void>
   /** Save changed Slack profile values (keyed like SlackProfile), then read the profile back. */
   saveSlack(changes: SlackProfile): Promise<SlackOutcome>
 }

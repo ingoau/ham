@@ -72,6 +72,9 @@ const remembered = {
 }
 
 /** Render the list's template lines and template groups, by account id. */
+/** Accounts a Slack sign-in would do something for: signed in to Hack Club, not to Slack. */
+const slackTargets = (list: Account[]) => list.filter((a) => a.status === 'signed-in' && !a.slack.session)
+
 function useViewTemplates(accounts: Account[], view: ViewSettings | undefined, custom: FieldDef[]): TemplateValues {
   const plan = useMemo(() => {
     const kinds: (keyof TemplateValues)[] = []
@@ -103,10 +106,12 @@ export function App() {
   const [sheet, setSheet] = useState<Sheet>(null)
   const [confirmSignOut, setConfirmSignOut] = useState<Account[] | null>(null)
   const [slackConfirm, setSlackConfirm] = useState<Account | null>(null)
+  const [slackBulkConfirm, setSlackBulkConfirm] = useState<Account[] | null>(null)
   // Dialogs keep their content while they animate closed.
   const sheetLatch = useLatched(sheet)
   const signOutLatch = useLatched(confirmSignOut)
   const slackLatch = useLatched(slackConfirm)
+  const slackBulkLatch = useLatched(slackBulkConfirm)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [filterOpen, setFilterOpen] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
@@ -119,7 +124,7 @@ export function App() {
   const formRef = useRef<ProfileFormHandle>(null)
   const slackRef = useRef<SlackProfileHandle>(null)
   const cancelBulk = useRef(false)
-  // Only one background job (bulk edit, undo or bulk sign-out) at a time; they share the progress card.
+  // Only one background job (bulk edit, undo, bulk sign-out or Slack sign-in) at a time; they share the progress card.
   const bulkRunning = useRef(false)
   const menuRef = useRef<(c: MenuCommand) => void>(() => {})
 
@@ -314,6 +319,7 @@ export function App() {
     const items: ContextMenuItem[] = [
       { id: 'toggle', label: section.open ? 'Collapse' : 'Expand' },
       { id: 'select', label: 'Select Accounts in Group', enabled: members.length > 0 },
+      ...(slackTargets(members).length ? [{ id: 'slack-sign-in', label: 'Sign In to Slack' }] : []),
       ...(own
         ? [
             { type: 'separator' as const },
@@ -334,6 +340,8 @@ export function App() {
         return setView({ ...app.view, collapsed: { ...app.view.collapsed, [section.key || 'accounts']: section.open } })
       case 'select':
         return setPicked(new Set(members.map((a) => a.id)))
+      case 'slack-sign-in':
+        return askSignInSlack(members)
       case 'rename':
         return own && setSheet({ kind: 'rename-group', group: own })
       case 'up':
@@ -485,6 +493,7 @@ export function App() {
           { label: 'Move to Group', submenu: groupItems(list) },
           { label: 'Tags', submenu: tagItems(list) },
           ...(list.some((a) => a.status === 'signed-out') ? [{ id: 'sign-in', label: 'Sign In Again' }] : []),
+          ...(slackTargets(list).length ? [{ id: 'slack-sign-in', label: 'Sign In to Slack' }] : []),
           { id: 'copy', label: `Copy ${list.length} Emails` },
           { type: 'separator' },
           { id: 'deselect', label: 'Deselect All', accelerator: 'CmdOrCtrl+Shift+A' },
@@ -500,6 +509,7 @@ export function App() {
                 { id: 'refresh', label: 'Refresh' }
               ]
             : []),
+          ...(account.slack.session ? [{ id: 'slack-sign-out', label: 'Sign Out of Slack' }] : []),
           ...(account.status === 'signed-out' ? [{ id: 'sign-in', label: 'Sign In Again' }] : []),
           { type: 'separator' },
           { id: 'pin', label: pinLabel, accelerator: 'CmdOrCtrl+Shift+P' },
@@ -533,6 +543,10 @@ export function App() {
         return setTab('web')
       case 'slack':
         return launchSlack(account)
+      case 'slack-sign-in':
+        return askSignInSlack(list)
+      case 'slack-sign-out':
+        return void signOutSlack(account)
       case 'refresh':
         select(account.id)
         return void window.ham.accounts.refresh(account.id).then((r) => (r.ok ? toast.success('Profile is up to date') : toast.error('Couldn’t refresh')))
@@ -584,7 +598,7 @@ export function App() {
   const signedIn = status === 'signed-in'
   const bulkMode = picked.size > 0
   const showDashboard = tab === 'web' && signedIn && !bulkMode
-  const overlayOpen = sheet !== null || confirmSignOut !== null || paletteOpen || slackConfirm !== null || filterOpen
+  const overlayOpen = sheet !== null || confirmSignOut !== null || paletteOpen || slackConfirm !== null || slackBulkConfirm !== null || filterOpen
   const mod = app?.info.platform === 'darwin' ? '⌘' : 'Ctrl+'
 
   const setView = useCallback((view: ViewSettings) => {
@@ -707,6 +721,63 @@ export function App() {
   const launchSlack = (account: Account) => {
     if (account.slack.linked || account.slack.session) void window.ham.accounts.launchSlack(account.id)
     else setSlackConfirm(account)
+  }
+
+  const signOutSlack = async (account: Account) => {
+    try {
+      await window.ham.accounts.signOutSlack(account.id)
+      toast.success(`Signed out of Slack: ${account.email}`)
+    } catch {
+      toast.error('Couldn’t sign out of Slack')
+    }
+  }
+
+  /** Sign in to Slack on several accounts, asking first if that would make Slack accounts. */
+  const askSignInSlack = (list: Account[]) => {
+    const targets = slackTargets(list)
+    if (targets.length === 0) return
+    if (targets.some((a) => a.slack.linked !== true)) setSlackBulkConfirm(targets)
+    else void signInSlackMany(targets)
+  }
+
+  /** Sign accounts in to Slack in hidden windows, a few at a time, with a progress card. */
+  const signInSlackMany = async (list: Account[]) => {
+    if (list.length === 0 || !claimBulk()) return
+    const label = 'Signing in to Slack'
+    let signedIn = 0
+    let failed = 0
+    let signedOut = 0
+    let done = 0
+    let next = 0
+    cancelBulk.current = false
+    setProgress({ label, done: 0, total: list.length })
+    const worker = async () => {
+      while (next < list.length && !cancelBulk.current) {
+        const a = list[next++]
+        try {
+          const r = await window.ham.accounts.signInSlack(a.id)
+          if (r === 'signed-in' || r === 'already') signedIn++
+          else if (r === 'signed-out') signedOut++
+          else failed++
+        } catch {
+          failed++
+        }
+        done++
+        setProgress((p) => ({ label, done, total: list.length, cancelling: p?.cancelling }))
+      }
+    }
+    // The main process runs three at a time too.
+    try {
+      await Promise.all(Array.from({ length: Math.min(3, list.length) }, worker))
+    } finally {
+      bulkRunning.current = false
+      setProgress(null)
+    }
+    const stopped = next < list.length ? 'Stopped. ' : ''
+    const problems = [failed && `${failed} couldn’t`, signedOut && `${signedOut} signed out of Hack Club`].filter(Boolean).join(' · ')
+    const text = `${stopped}Signed in to Slack on ${signedIn} ${signedIn === 1 ? 'account' : 'accounts'}${problems ? ` · ${problems}` : ''}`
+    const description = failed ? 'Use Launch Slack on those to finish signing in.' : undefined
+    ;(failed || signedOut ? toast.error : stopped ? toast : toast.success)(text, { description })
   }
 
   /** Save one field across accounts, one at a time, with a progress card. */
@@ -883,6 +954,9 @@ export function App() {
   if (!app) return <div className="app" />
   const shownSheet = sheetLatch.value
   const slackShown = slackLatch.value!
+  const slackBulkShown = slackBulkLatch.value ?? []
+  const slackBulkNew = slackBulkShown.filter((a) => a.slack.linked !== true)
+  const slackBulkOn = slackBulkShown.filter((a) => a.slack.linked === true)
 
   const pickedAccounts = accounts.filter((a) => picked.has(a.id))
 
@@ -1061,6 +1135,7 @@ export function App() {
                       custom={customFields}
                       accounts={accounts}
                       onLaunch={() => launchSlack(selected)}
+                      onSignOut={() => signOutSlack(selected)}
                       onSaved={(text, kind) => (kind === 'success' ? toast.success(text) : toast.error(text))}
                     />
                     <LocalNameCard account={selected} />
@@ -1206,6 +1281,50 @@ export function App() {
                   }}
                 >
                   {slackShown.slack.linked === false ? 'Create and open Slack' : 'Open Slack'}
+                </AlertDialog.Action>
+              </div>
+            </AlertDialog.Content>
+          </AlertDialog.Portal>
+        </AlertDialog.Root>
+      )}
+      {slackBulkLatch.value && (
+        <AlertDialog.Root key={slackBulkLatch.n} open={slackBulkLatch.open} onOpenChange={(o) => !o && setSlackBulkConfirm(null)}>
+          <AlertDialog.Portal>
+            <AlertDialog.Overlay className="overlay" />
+            <AlertDialog.Content className="sheet">
+              <div className="sheet-head">
+                <AlertDialog.Title>
+                  Sign in to Slack on {slackBulkShown.length} {slackBulkShown.length === 1 ? 'account' : 'accounts'}?
+                </AlertDialog.Title>
+                <AlertDialog.Description className="lead">
+                  {slackBulkNew.length === slackBulkShown.length
+                    ? slackBulkNew.length === 1
+                      ? 'It might not be on Slack yet. Signing in through Hack Club creates a Hack Club Slack account for it.'
+                      : 'They might not be on Slack yet. Signing in through Hack Club creates Hack Club Slack accounts for them.'
+                    : `${slackBulkNew.length} of them might not be on Slack yet. Signing in through Hack Club creates Hack Club Slack accounts for them.`}
+                </AlertDialog.Description>
+              </div>
+              <div className="dialog-actions">
+                <AlertDialog.Cancel className="btn">Cancel</AlertDialog.Cancel>
+                {slackBulkOn.length > 0 && (
+                  <AlertDialog.Action
+                    className="btn"
+                    onClick={() => {
+                      void signInSlackMany(slackBulkOn)
+                      setSlackBulkConfirm(null)
+                    }}
+                  >
+                    Only {slackBulkOn.length} on Slack
+                  </AlertDialog.Action>
+                )}
+                <AlertDialog.Action
+                  className="btn btn-primary"
+                  onClick={() => {
+                    void signInSlackMany(slackBulkShown)
+                    setSlackBulkConfirm(null)
+                  }}
+                >
+                  {slackBulkShown.length === 1 ? 'Sign in' : `Sign in all ${slackBulkShown.length}`}
                 </AlertDialog.Action>
               </div>
             </AlertDialog.Content>

@@ -98,6 +98,18 @@ export class SlackApi {
     }
   }
 
+  /** End the Slack session on Slack's side, if there is one (best effort: HAM clears the cookies either way). */
+  async signOut(): Promise<void> {
+    try {
+      const auth = await this.getAuth()
+      await this.fetch(`${auth.api}api/auth.signout`, { method: 'POST', body: new URLSearchParams({ token: auth.token }) })
+    } catch {
+      // already signed out, or Slack is unreachable
+    } finally {
+      this.auth = null
+    }
+  }
+
   /** The user's whole profile: standard fields, timezone and the workspace's own fields. */
   async read(): Promise<SlackRead> {
     const { userId } = await this.getAuth()

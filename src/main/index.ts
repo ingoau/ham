@@ -12,7 +12,7 @@ import { InboxService } from './inbox'
 import { checkAccounts } from './inbox-match'
 import { isSafeExternalUrl } from './lockdown'
 import { buildMenu } from './menu'
-import { launchSlack } from './slack'
+import { closeSlack, launchSlack, signInSlackHidden } from './slack'
 import { Store, withDefaults } from './store'
 import { checkForUpdate } from './updates'
 
@@ -83,7 +83,8 @@ function state(): AppState {
     update: update && store.dismissedUpdate !== update.version ? update : null,
     theme: store.theme,
     view: store.view,
-    inbox: inbox.status()
+    inbox: inbox.status(),
+    autoSlack: store.autoSlack
   }
 }
 
@@ -204,6 +205,8 @@ function registerIpc() {
     'accounts.signInAgain': (ids: string[]) => accounts.signInAgain(Array.isArray(ids) ? ids : []),
     'accounts.remove': async (id: string) => {
       dashboard?.forget(id)
+      const partition = accounts.partitionOf(id)
+      if (partition) closeSlack(partition)
       return accounts.remove(id)
     },
     'accounts.refresh': (id: string) => accounts.refresh(id),
@@ -226,7 +229,7 @@ function registerIpc() {
         mock: MOCK,
         onSignedIn: () => {
           if (MOCK) MockBackend.markSlackSession(partition)
-          accounts.setSlack(id, { linked: true, session: true })
+          accounts.setSlack(id, { linked: true, session: true, keepSignedOut: false })
           void accounts.refreshSlack(id, true)
         },
         onSignedOut: () => {
@@ -234,6 +237,13 @@ function registerIpc() {
           send({ type: 'toast', text: `${account.email} is signed out. Sign in again to open Slack.`, kind: 'error' })
         }
       })
+    },
+    'accounts.signInSlack': (id: string) => accounts.signInSlack(String(id)),
+    'accounts.signOutSlack': async (id: string) => {
+      const partition = accounts.partitionOf(String(id))
+      if (!partition) return
+      closeSlack(partition)
+      await accounts.signOutSlack(String(id))
     },
     'accounts.setLocalName': (id: string, name: string) => accounts.setLocalName(String(id), typeof name === 'string' ? name : ''),
     'accounts.setPinned': (ids: string[], pinned: boolean) => accounts.setPinned(Array.isArray(ids) ? ids : [], pinned === true),
@@ -286,6 +296,11 @@ function registerIpc() {
     },
     'settings.setView': (view: ViewSettings) => {
       store.view = store.pruneFilter(withDefaults(view ?? {}))
+      broadcastState()
+    },
+    'settings.setAutoSlack': (on: boolean) => {
+      store.autoSlack = on === true
+      accounts.autoSignInSlack()
       broadcastState()
     },
     'settings.checkForUpdates': async () => {
@@ -371,6 +386,15 @@ app.whenReady().then(async () => {
     MOCK
   )
   accounts.setInbox(inbox)
+  accounts.setSlackSignIn(
+    MOCK
+      ? async (partition) => {
+          await new Promise((r) => setTimeout(r, 900))
+          MockBackend.markSlackSession(partition)
+          return 'signed-in'
+        }
+      : (partition) => signInSlackHidden(partition)
+  )
   accounts.markExpired()
 
   registerIpc()

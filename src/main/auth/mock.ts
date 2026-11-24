@@ -218,6 +218,13 @@ export class MockBackend implements AuthBackend {
     return { kind: 'ok', userId: slackIdFor(email), profile, fields: MOCK_SLACK_FIELDS, users }
   }
 
+  async signOutSlack(): Promise<void> {
+    await wait(300)
+    const db = loadDb()
+    if (db.slack) db.slack[this.partition] = false
+    saveDb(db)
+  }
+
   async saveSlack(changes: SlackProfile): Promise<SlackOutcome> {
     await wait(400)
     if (changes.status_emoji === ':nope:') return { kind: 'rejected', message: 'Slack doesn’t know that status emoji.' }

@@ -19,6 +19,8 @@ const api: HamApi = {
     save: (id, profile) => call('accounts.save', id, profile),
     saveSlack: (id, changes) => call('accounts.saveSlack', id, changes),
     launchSlack: (id) => call('accounts.launchSlack', id),
+    signInSlack: (id) => call('accounts.signInSlack', id),
+    signOutSlack: (id) => call('accounts.signOutSlack', id),
     setLocalName: (id, name) => call('accounts.setLocalName', id, name),
     setPinned: (ids, pinned) => call('accounts.setPinned', ids, pinned),
     reorder: (ids) => call('accounts.reorder', ids),
@@ -44,6 +46,7 @@ const api: HamApi = {
   settings: {
     setTheme: (theme) => call('settings.setTheme', theme),
     setView: (view) => call('settings.setView', view),
+    setAutoSlack: (on) => call('settings.setAutoSlack', on),
     checkForUpdates: () => call('settings.checkForUpdates')
   },
   inbox: {
