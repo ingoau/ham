@@ -7,7 +7,6 @@
 // the HCA cookies are the account's own session, and signing out of Slack would
 // end the tokens.
 import { BrowserWindow, session, type Session } from 'electron'
-import { randomUUID } from 'node:crypto'
 import type { SlackTokens } from '@shared/types'
 import { AUTH_ORIGIN } from './auth/flow'
 import { SLACK_HOST, SUBMIT_SAML, chromeUserAgent, judgeSlackNavigation } from './slack'
@@ -63,11 +62,28 @@ async function readTokens(ses: Session): Promise<SlackTokens | null> {
   return null
 }
 
+/** Stops every run in progress (the main window closed). */
+const cancels = new Set<() => void>()
+export function cancelSlackTokenRuns() {
+  for (const cancel of cancels) cancel()
+}
+
+const lockedDown = new WeakSet<Session>()
+
+/**
+ * `partition` is the account's; runs are one per account at a time. Electron
+ * can't free a session, so each account reuses one in-memory partition, wiped
+ * after every run.
+ */
 export async function fetchSlackTokens(partition: string): Promise<SlackTokens> {
-  const tmp = session.fromPartition(`ham-tokens-${randomUUID()}`)
-  tmp.setPermissionRequestHandler((_wc, _permission, callback) => callback(false))
-  tmp.setPermissionCheckHandler(() => false)
-  tmp.on('will-download', (e) => e.preventDefault())
+  const tmp = session.fromPartition(`ham-tokens-${partition.replace(/^persist:/, '')}`)
+  if (!lockedDown.has(tmp)) {
+    lockedDown.add(tmp)
+    tmp.setPermissionRequestHandler((_wc, _permission, callback) => callback(false))
+    tmp.setPermissionCheckHandler(() => false)
+    tmp.on('will-download', (e) => e.preventDefault())
+  }
+  await tmp.clearStorageData()
   let win: BrowserWindow | null = null
   try {
     await copyCookies(session.fromPartition(partition), tmp, `${AUTH_ORIGIN}/`)
@@ -96,9 +112,12 @@ function signIn(win: BrowserWindow, ses: Session): Promise<SlackTokens> {
       settled = true
       clearTimeout(timer)
       clearInterval(poll)
+      cancels.delete(cancel)
       fn()
     }
     const fail = (err: Error) => settle(() => reject(err))
+    const cancel = () => fail(new TokensFailed('Cancelled.'))
+    cancels.add(cancel)
     const timer = setTimeout(() => fail(new TokensFailed('Slack didn’t finish signing in. Try again.')), TIMEOUT_MS)
     const check = async () => {
       if (settled || checking || !submitted) return
@@ -113,14 +132,17 @@ function signIn(win: BrowserWindow, ses: Session): Promise<SlackTokens> {
     // Slack's SSO ends on the web client; poll as well, in case it stops on a page HAM doesn't expect.
     const poll = setInterval(() => void check(), POLL_MS)
 
-    const guard = (event: Electron.Event, url: string) => {
+    // slack:// (Slack offering its desktop app) is blocked quietly: the sign-in has already finished by then.
+    const guard = (event: Electron.Event, url: string, isMainFrame: boolean) => {
       const verdict = judgeSlackNavigation(url)
       if (verdict === 'allow') return
       event.preventDefault()
       if (verdict === 'signed-out') fail(new TokensSignedOut())
+      // A page off Slack and HCA's SSO (HCA onboarding, say) is a dead end in a hidden window.
+      else if (verdict === 'external' && isMainFrame) fail(new TokensFailed('Slack’s sign-in went somewhere HAM can’t follow. Try Launch Slack.'))
     }
-    wc.on('will-navigate', (e) => guard(e, e.url))
-    wc.on('will-redirect', (e) => guard(e, e.url))
+    wc.on('will-navigate', (e) => guard(e, e.url, e.isMainFrame))
+    wc.on('will-redirect', (e) => guard(e, e.url, e.isMainFrame))
     wc.on('will-frame-navigate', (e) => {
       if (!e.isMainFrame && judgeSlackNavigation(e.url) !== 'allow') e.preventDefault()
     })
@@ -128,7 +150,11 @@ function signIn(win: BrowserWindow, ses: Session): Promise<SlackTokens> {
     wc.on('render-process-gone', () => fail(new TokensFailed('Slack’s sign-in page stopped working. Try again.')))
     wc.on('did-fail-load', (_e, code, description, _url, isMainFrame) => {
       // -3 is a navigation HAM (or the page) cancelled.
-      if (isMainFrame && code !== -3 && !submitted) fail(new TokensFailed(`Can’t reach Hack Club Auth (${description}).`))
+      if (!isMainFrame || code === -3) return
+      const err = new TokensFailed(`Can’t reach ${submitted ? 'Slack' : 'Hack Club Auth'} (${description}).`)
+      if (!submitted) return fail(err)
+      // The sign-in may have finished before the page that failed.
+      void readTokens(ses).then((tokens) => (tokens ? settle(() => resolve(tokens)) : fail(err)), () => fail(err))
     })
     wc.on('did-finish-load', () => {
       const url = new URL(wc.getURL())

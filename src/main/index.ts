@@ -13,7 +13,7 @@ import { checkAccounts } from './inbox-match'
 import { isSafeExternalUrl } from './lockdown'
 import { buildMenu } from './menu'
 import { launchSlack } from './slack'
-import { TokensFailed, TokensSignedOut, fetchSlackTokens } from './slack-tokens'
+import { TokensFailed, TokensSignedOut, cancelSlackTokenRuns, fetchSlackTokens } from './slack-tokens'
 import { Store, withDefaults } from './store'
 import { checkForUpdate } from './updates'
 
@@ -189,6 +189,7 @@ function createWindow() {
 
   win.on('closed', () => {
     mainWindow = null
+    cancelSlackTokenRuns()
     dashboard = null
   })
 }
@@ -421,7 +422,7 @@ app.whenReady().then(async () => {
   }
 
   app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow()
+    if (!mainWindow) createWindow()
   })
 })
 
