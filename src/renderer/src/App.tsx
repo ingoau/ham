@@ -101,7 +101,7 @@ export function App() {
   const [selectedId, setSelectedId] = useState<string | null>(() => remembered.get('selected'))
   const [tab, setTab] = useState<Tab>('profile')
   const [sheet, setSheet] = useState<Sheet>(null)
-  const [confirmSignOut, setConfirmSignOut] = useState<Account | null>(null)
+  const [confirmSignOut, setConfirmSignOut] = useState<Account[] | null>(null)
   const [slackConfirm, setSlackConfirm] = useState<Account | null>(null)
   // Dialogs keep their content while they animate closed.
   const sheetLatch = useLatched(sheet)
@@ -119,6 +119,8 @@ export function App() {
   const formRef = useRef<ProfileFormHandle>(null)
   const slackRef = useRef<SlackProfileHandle>(null)
   const cancelBulk = useRef(false)
+  // Only one background job (bulk edit, undo or bulk sign-out) at a time; they share the progress card.
+  const bulkRunning = useRef(false)
   const menuRef = useRef<(c: MenuCommand) => void>(() => {})
 
   useEffect(() => {
@@ -485,7 +487,9 @@ export function App() {
           ...(list.some((a) => a.status === 'signed-out') ? [{ id: 'sign-in', label: 'Sign In Again' }] : []),
           { id: 'copy', label: `Copy ${list.length} Emails` },
           { type: 'separator' },
-          { id: 'deselect', label: 'Deselect All', accelerator: 'CmdOrCtrl+Shift+A' }
+          { id: 'deselect', label: 'Deselect All', accelerator: 'CmdOrCtrl+Shift+A' },
+          { type: 'separator' },
+          { id: 'remove', label: `${list.some((a) => a.status === 'signed-in') ? 'Sign Out and Remove' : 'Remove'} ${list.length} Accounts…` }
         ]
       : [
           { id: 'open', label: 'Open' },
@@ -547,8 +551,9 @@ export function App() {
         await window.ham.copyText(list.map((a) => a.email).join('\n'))
         return void toast.success(list.length > 1 ? `Copied ${list.length} emails` : 'Copied')
       case 'remove':
+        if (many) return confirmRemove(list)
         if (isPending(account.status)) return void remove(account)
-        return setConfirmSignOut(account)
+        return confirmRemove([account])
     }
   }
 
@@ -616,8 +621,14 @@ export function App() {
     if (added.length > 1) toast(`Adding ${added.length} accounts`)
   }
 
-  const remove = async (account: Account) => {
-    const { serverSignedOut, removed } = await window.ham.accounts.remove(account.id)
+  /**
+   * Sign out of (if signed in) and remove an account. For an existing account that's signing in again,
+   * the first call only cancels the sign-in; `fully` makes a second call to remove it too.
+   */
+  const remove = async (account: Account, fully = false) => {
+    let { serverSignedOut, removed } = await window.ham.accounts.remove(account.id)
+    // Cancelling a sign-in is the only outcome that's not removed but "signed out".
+    if (fully && !removed && serverSignedOut) ({ serverSignedOut, removed } = await window.ham.accounts.remove(account.id))
     setConfirmSignOut(null)
     if (!removed) return
     if (account.status === 'signed-in') {
@@ -627,6 +638,72 @@ export function App() {
     if (selectedId === account.id) setSelectedId(null)
   }
 
+  /** Take the progress card for a background job, or say why not. */
+  const claimBulk = () => {
+    if (bulkRunning.current) {
+      toast('Wait for the current update to finish')
+      return false
+    }
+    bulkRunning.current = true
+    return true
+  }
+
+  /** Ask before signing out of (and removing) one account or a whole selection. */
+  const confirmRemove = (list: Account[]) => {
+    if (list.length === 0) return
+    if (list.length > 1 && bulkRunning.current) return void toast('Wait for the current update to finish')
+    setConfirmSignOut(list)
+  }
+
+  /** Sign out of and remove several accounts in the background, a few at a time, with a progress card. */
+  const removeMany = async (list: Account[]) => {
+    if (!claimBulk()) return
+    const signedIn = list.filter((a) => a.status === 'signed-in').length
+    const signingOut = signedIn > 0
+    const label = signingOut ? 'Signing out' : 'Removing'
+    const removedIds = new Set<string>()
+    let unreached = 0
+    let failed = 0
+    let done = 0
+    let next = 0
+    cancelBulk.current = false
+    setProgress({ label, done: 0, total: list.length })
+    const worker = async () => {
+      while (next < list.length && !cancelBulk.current) {
+        const a = list[next++]
+        try {
+          let r = await window.ham.accounts.remove(a.id)
+          // A sign-in in progress is only cancelled by the first call (not removed, but "signed out"); the second removes it.
+          if (!r.removed && r.serverSignedOut) r = await window.ham.accounts.remove(a.id)
+          if (r.removed) {
+            removedIds.add(a.id)
+            if (!r.serverSignedOut) unreached++
+          } else failed++
+        } catch {
+          failed++
+        }
+        done++
+        setProgress((p) => ({ label, done, total: list.length, cancelling: p?.cancelling }))
+      }
+    }
+    // Sign-out isn't rate limited, but keep it gentle on the server.
+    try {
+      await Promise.all(Array.from({ length: Math.min(4, list.length) }, worker))
+    } finally {
+      bulkRunning.current = false
+      setProgress(null)
+    }
+    setSelectedId((id) => (id && removedIds.has(id) ? null : id))
+    const n = removedIds.size
+    const stopped = next < list.length ? 'Stopped. ' : ''
+    const verb = signedIn === list.length ? 'Signed out of' : signingOut ? 'Signed out and removed' : 'Removed'
+    const text = `${stopped}${verb} ${n} ${n === 1 ? 'account' : 'accounts'}${failed ? ` · ${failed} failed` : ''}`
+    const description = unreached
+      ? `HAM couldn’t reach the server for ${unreached === 1 ? 'one of them' : `${unreached} of them`}, so ${unreached === 1 ? 'that session' : 'those sessions'} will expire on their own.`
+      : undefined
+    ;(failed ? toast.error : unreached || stopped ? toast : toast.success)(text, { description })
+  }
+
   const launchSlack = (account: Account) => {
     if (account.slack.linked || account.slack.session) void window.ham.accounts.launchSlack(account.id)
     else setSlackConfirm(account)
@@ -634,41 +711,46 @@ export function App() {
 
   /** Save one field across accounts, one at a time, with a progress card. */
   const runBulk = async (label: string, field: FieldDef, items: { account: Account; value: string }[], undoable: boolean) => {
+    if (!claimBulk()) return
     const previous: { account: Account; value: string }[] = []
     let failed = 0
     let stopped = false
     cancelBulk.current = false
     setProgress({ label, done: 0, total: items.length })
-    for (let i = 0; i < items.length; i++) {
-      if (cancelBulk.current) {
-        stopped = true
-        break
-      }
-      const { account, value } = items[i]
-      if (field.local) {
-        await window.ham.accounts.setLocalName(account.id, value)
-        previous.push({ account, value: fieldValue(account, field) })
-        setProgress((p) => ({ label, done: i + 1, total: items.length, cancelling: p?.cancelling }))
-        continue
-      }
-      if (isSlackField(field)) {
-        const r = await window.ham.accounts.saveSlack(account.id, { [field.id]: value })
+    try {
+      for (let i = 0; i < items.length; i++) {
+        if (cancelBulk.current) {
+          stopped = true
+          break
+        }
+        const { account, value } = items[i]
+        if (field.local) {
+          await window.ham.accounts.setLocalName(account.id, value)
+          previous.push({ account, value: fieldValue(account, field) })
+          setProgress((p) => ({ label, done: i + 1, total: items.length, cancelling: p?.cancelling }))
+          continue
+        }
+        if (isSlackField(field)) {
+          const r = await window.ham.accounts.saveSlack(account.id, { [field.id]: value })
+          if (r.ok) previous.push({ account, value: fieldValue(account, field) })
+          else failed++
+          setProgress((p) => ({ label, done: i + 1, total: items.length, cancelling: p?.cancelling }))
+          continue
+        }
+        const latest = accounts.find((a) => a.id === account.id) ?? account
+        const input = { firstName: latest.firstName, lastName: latest.lastName, phone: latest.phone }
+        if (field.key === 'first') input.firstName = value
+        else if (field.key === 'last') input.lastName = value
+        else if (field.key === 'phone') input.phone = value
+        const r = await window.ham.accounts.save(account.id, input)
         if (r.ok) previous.push({ account, value: fieldValue(account, field) })
         else failed++
         setProgress((p) => ({ label, done: i + 1, total: items.length, cancelling: p?.cancelling }))
-        continue
       }
-      const latest = accounts.find((a) => a.id === account.id) ?? account
-      const input = { firstName: latest.firstName, lastName: latest.lastName, phone: latest.phone }
-      if (field.key === 'first') input.firstName = value
-      else if (field.key === 'last') input.lastName = value
-      else if (field.key === 'phone') input.phone = value
-      const r = await window.ham.accounts.save(account.id, input)
-      if (r.ok) previous.push({ account, value: fieldValue(account, field) })
-      else failed++
-      setProgress((p) => ({ label, done: i + 1, total: items.length, cancelling: p?.cancelling }))
+    } finally {
+      bulkRunning.current = false
+      setProgress(null)
     }
-    setProgress(null)
     const done = previous.length
     const text = `${stopped ? 'Stopped. ' : ''}Updated ${done} ${done === 1 ? 'account' : 'accounts'}${failed ? ` · ${failed} failed` : ''}`
     if (undoable && done > 0) {
@@ -774,7 +856,7 @@ export function App() {
         setSheet({ kind: 'tag', tag: null, ids: [...picked] })
         break
       case 'sign-out':
-        if (selected) setConfirmSignOut(selected)
+        confirmRemove(targets())
         break
     }
   }
@@ -879,6 +961,7 @@ export function App() {
                   void window.ham.accounts.signInAgain(ids)
                   toast(`Signing in ${ids.length} ${ids.length === 1 ? 'account' : 'accounts'} again`)
                 }}
+                onSignOut={() => confirmRemove(pickedAccounts)}
                 onApply={applyBulk}
                 fields={allFieldDefs}
                 customFields={customFields}
@@ -979,7 +1062,7 @@ export function App() {
                       onSaved={(text, kind) => (kind === 'success' ? toast.success(text) : toast.error(text))}
                     />
                     <LocalNameCard account={selected} />
-                    <SessionCard account={selected} onSignOut={() => setConfirmSignOut(selected)} />
+                    <SessionCard account={selected} onSignOut={() => confirmRemove([selected])} />
                   </Tabs.Content>
                   <Tabs.Content value="web" className="tab-panel grow">
                     {showDashboard && (
@@ -1086,9 +1169,15 @@ export function App() {
         <SignOutDialog
           key={signOutLatch.n}
           open={signOutLatch.open}
-          account={signOutLatch.value}
+          accounts={signOutLatch.value}
           onCancel={() => setConfirmSignOut(null)}
-          onConfirm={() => remove(signOutLatch.value!)}
+          onConfirm={async () => {
+            const list = signOutLatch.value!
+            if (list.length === 1) return remove(list[0], true)
+            // Many: close now and carry on in the background with a progress card.
+            setConfirmSignOut(null)
+            void removeMany(list)
+          }}
         />
       )}
 

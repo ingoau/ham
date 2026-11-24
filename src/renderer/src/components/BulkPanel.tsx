@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 import * as Popover from '@radix-ui/react-popover'
 import { Command } from 'cmdk'
-import { Check, ChevronDown, Folder, LogIn, Pin, PinOff, Tag, X } from 'lucide-react'
+import { Check, ChevronDown, Folder, LogIn, LogOut, Pin, PinOff, Tag, X } from 'lucide-react'
 import { FIELD_GROUPS, HCA_FIELDS, fieldEditable, type FieldDef } from '@shared/fields'
 import type { Account, AccountTag } from '@shared/types'
 import { bulkJobs, planBulk, type BulkPlan } from '../bulk'
@@ -21,6 +21,8 @@ interface Props {
   /** Opens the tag checklist. */
   onTags(): void
   onSignInAgain(): void
+  /** Asks to sign out of and remove every selected account. */
+  onSignOut(): void
   onApply(field: FieldDef, plan: BulkPlan): void
   /** Every field (allFields), and the workspace's own Slack ones among them. */
   fields: FieldDef[]
@@ -78,7 +80,7 @@ function FieldPicker({ field, fields, onPick }: { field: FieldDef; fields: Field
 }
 
 /** The right pane while accounts are selected: who's selected, quick actions, and bulk edit. */
-export function BulkPanel({ picked, busy, onClear, onPin, onGroup, onTags, onSignInAgain, onApply, fields, customFields }: Props) {
+export function BulkPanel({ picked, busy, onClear, onPin, onGroup, onTags, onSignInAgain, onSignOut, onApply, fields, customFields }: Props) {
   const [pickedField, setField] = useState<FieldDef>(HCA_FIELDS[0])
   // Slack's field list can change under the picker: keep the newest copy of the chosen field.
   const field = fields.find((f) => f.id === pickedField.id) ?? pickedField
@@ -127,6 +129,10 @@ export function BulkPanel({ picked, busy, onClear, onPin, onGroup, onTags, onSig
               Sign in again
             </button>
           )}
+          <button className="btn" onClick={onSignOut} disabled={busy} title={busy ? 'Another update is running' : undefined}>
+            <LogOut size={15} aria-hidden />
+            {picked.some((a) => a.status === 'signed-in') ? 'Sign out…' : 'Remove…'}
+          </button>
           <button className="btn" onClick={onClear}>
             <X size={15} aria-hidden />
             Clear
