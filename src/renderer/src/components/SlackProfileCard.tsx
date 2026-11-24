@@ -176,16 +176,13 @@ export const SlackProfileCard = forwardRef<SlackProfileHandle, Props>(function S
 
   return (
     <form className="card" onSubmit={save} aria-labelledby="slack-heading">
-      <div>
-        <h2 id="slack-heading">Slack profile</h2>
-        <p className="lead">Saved to Hack Club Slack with this account’s own Slack sign-in.</p>
-      </div>
+      <h2 id="slack-heading">Slack profile</h2>
 
       {!session && (
         <div className="banner info">
           <Info size={16} aria-hidden style={{ flex: 'none' }} />
           <span className="text">
-            {hasValues ? 'Open Slack again to edit this profile. These are the values HAM last saw.' : 'Open Slack once in HAM to edit this profile here.'}
+            Open Slack to edit this profile.
           </span>
           {account.status === 'signed-in' && (
             <button type="button" className="btn" onClick={onLaunch}>
@@ -223,7 +220,6 @@ export const SlackProfileCard = forwardRef<SlackProfileHandle, Props>(function S
               {s.fields.map(customField)}
             </fieldset>
           ))}
-          {session && custom.length === 0 && <p className="hint">Slack’s own fields show up here once HAM has read this profile. Refresh to read it now.</p>}
         </>
       )}
 
