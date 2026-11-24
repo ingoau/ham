@@ -208,6 +208,19 @@ try {
   await page.getByText('Signed out of orpheus.dino@example.com').waitFor({ timeout: 10_000 })
   step('signs out and removes an account')
 
+  // Select everything left and sign out of it all at once from the bulk pane.
+  await page.locator('.account-row .row-main').first().click()
+  await page.keyboard.press('ControlOrMeta+a')
+  const left = await page.locator('.account-row').count()
+  if (left < 2) throw new Error(`expected several accounts left, found ${left}`)
+  await page.locator('.bulk-panel').getByRole('button', { name: 'Sign out…' }).click()
+  await page.getByRole('heading', { name: `Sign out of ${left} accounts?` }).waitFor({ timeout: 5_000 })
+  if ((await page.locator('.signout-list li').count()) !== left) throw new Error('dialog does not list every selected account')
+  await page.getByRole('button', { name: `Sign out of ${left}`, exact: true }).click()
+  await page.getByText(new RegExp(`^Signed out (of|and removed) ${left} accounts$`)).waitFor({ timeout: 20_000 })
+  await page.getByRole('heading', { name: 'No accounts yet' }).waitFor({ timeout: 5_000 })
+  step('signs out of every selected account at once')
+
   if (errors.length) throw new Error(`page errors: ${errors.join('; ')}`)
   console.log('SMOKE OK')
 } catch (err) {

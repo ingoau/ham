@@ -19,7 +19,7 @@ HAM signs in to [Hack Club Auth](https://auth.hackclub.com) with your email, kee
 - **A command palette** (Cmd+K) to jump to any account or run an action.
 - **Edit name and phone number.** Changes save straight to auth.hackclub.com.
 - **Local names** that only HAM keeps ("Personal", "Club leads"), to tell look-alike accounts apart. The list shows each account by its local name, then its Slack display name, Slack full name, and finally its Hack Club name. Search for them, set them in bulk, or use `{{ account.local }}` in templates.
-- **Select and bulk edit** with Jinja templates (`{{ account.hca.first | lower }}-alt{{ index }}`, with Slack fields under `account.slack` and custom ones under `account.slack.fields`): preview every change, apply in the background, undo.
+- **Select and bulk edit** with Jinja templates (`{{ account.hca.first | lower }}-alt{{ index }}`, with Slack fields under `account.slack` and custom ones under `account.slack.fields`): preview every change, apply in the background, undo. Sign out of a whole selection at once, too.
 - **View options:** sort, group and choose what each row shows, including templates.
 - **Launch Slack** for any account in its own window, signed in through Hack Club.
 - **The Hack Club Auth dashboard, embedded** for each account and already signed in, or popped out into its own window. It's locked to auth.hackclub.com: it can't be used to sign in to other apps, and other links open in your browser.
