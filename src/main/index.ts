@@ -433,7 +433,7 @@ app.whenReady().then(async () => {
   accounts.markExpired()
 
   registerIpc()
-  buildMenu((command: MenuCommand) => send({ type: 'menu', command }))
+  buildMenu((command: MenuCommand) => send({ type: 'menu', command }), () => mainWindow)
   createWindow()
 
   void inbox.start()

@@ -1,14 +1,70 @@
 // The app menu. Its accelerators are HAM's keyboard shortcuts, so they show up
 // in the menu and work on every platform (Cmd on macOS, Ctrl elsewhere).
-import { app, Menu, shell, type MenuItemConstructorOptions } from 'electron'
+//
+// The menu belongs to the whole app, so its shortcuts also fire in Slack and
+// popped-out Auth windows. HAM's commands act on the main window, so they only
+// run when it has focus; elsewhere a shortcut does the browser's own thing or nothing.
+import { app, BrowserWindow, Menu, shell, webContents, type BaseWindow, type KeyboardEvent, type MenuItemConstructorOptions, type WebContents } from 'electron'
 import type { MenuCommand } from '@shared/types'
 
-export function buildMenu(send: (command: MenuCommand) => void) {
+/** Where keyboard focus is: HAM's UI, a page embedded in the main window, or another window. */
+export type MenuFocus = 'app' | 'embedded' | 'other'
+export type MenuAction = 'send' | 'focus-and-send' | 'select-all' | 'unselect' | 'reload' | 'ignore'
+
+/** Shortcuts that make sense from any window, like Settings, bring the main window forward. */
+const APP_WIDE = new Set<MenuCommand['type']>(['open-settings', 'add-account'])
+
+/** A click in the menu bar always means HAM; a shortcut follows keyboard focus. */
+export function routeMenuCommand(command: MenuCommand, focus: MenuFocus, byShortcut: boolean): MenuAction {
+  if (focus === 'app') return 'send'
+  // Select All in a web page selects its text, never every account.
+  if (command.type === 'select-all') return 'select-all'
+  if (command.type === 'deselect-all') return 'unselect'
+  if (focus === 'embedded') return 'send'
+  if (!byShortcut || APP_WIDE.has(command.type)) return 'focus-and-send'
+  return command.type === 'refresh' ? 'reload' : 'ignore'
+}
+
+export function buildMenu(send: (command: MenuCommand) => void, mainWindow: () => BrowserWindow | null) {
   const isMac = process.platform === 'darwin'
+
+  const focusOf = (win: BaseWindow | undefined): { focus: MenuFocus; wc: WebContents | null } => {
+    const main = mainWindow()
+    const focused = webContents.getFocusedWebContents()
+    if (main && !main.isDestroyed() && win === main) {
+      return { focus: !focused || focused === main.webContents ? 'app' : 'embedded', wc: focused }
+    }
+    return { focus: 'other', wc: focused ?? (win instanceof BrowserWindow ? win.webContents : null) }
+  }
+
+  const run =
+    (command: MenuCommand) =>
+    (_item: unknown, win: BaseWindow | undefined, event: KeyboardEvent): void => {
+      const { focus, wc } = focusOf(win)
+      switch (routeMenuCommand(command, focus, Boolean(event?.triggeredByAccelerator))) {
+        case 'send':
+          return send(command)
+        case 'focus-and-send': {
+          const main = mainWindow()
+          if (main && !main.isDestroyed()) {
+            if (main.isMinimized()) main.restore()
+            main.focus()
+          }
+          return send(command)
+        }
+        case 'select-all':
+          return wc?.selectAll()
+        case 'unselect':
+          return wc?.unselect()
+        case 'reload':
+          return wc?.reload()
+      }
+    }
+
   const accountSwitches: MenuItemConstructorOptions[] = Array.from({ length: 9 }, (_, i) => ({
     label: `Account ${i + 1}`,
     accelerator: `CmdOrCtrl+${i + 1}`,
-    click: () => send({ type: 'select-index', index: i })
+    click: run({ type: 'select-index', index: i })
   }))
 
   const template: MenuItemConstructorOptions[] = [
@@ -19,7 +75,7 @@ export function buildMenu(send: (command: MenuCommand) => void) {
             submenu: [
               { role: 'about' as const },
               { type: 'separator' as const },
-              { label: 'Settings…', accelerator: 'Cmd+,', click: () => send({ type: 'open-settings' }) },
+              { label: 'Settings…', accelerator: 'Cmd+,', click: run({ type: 'open-settings' }) },
               { type: 'separator' as const },
               { role: 'services' as const },
               { type: 'separator' as const },
@@ -35,8 +91,8 @@ export function buildMenu(send: (command: MenuCommand) => void) {
     {
       label: 'File',
       submenu: [
-        { label: 'Add Accounts…', accelerator: 'CmdOrCtrl+N', click: () => send({ type: 'add-account' }) },
-        ...(isMac ? [] : [{ label: 'Settings…', accelerator: 'Ctrl+,', click: () => send({ type: 'open-settings' }) }]),
+        { label: 'Add Accounts…', accelerator: 'CmdOrCtrl+N', click: run({ type: 'add-account' }) },
+        ...(isMac ? [] : [{ label: 'Settings…', accelerator: 'Ctrl+,', click: run({ type: 'open-settings' }) }]),
         { type: 'separator' },
         isMac ? { role: 'close' } : { role: 'quit' }
       ]
@@ -51,39 +107,39 @@ export function buildMenu(send: (command: MenuCommand) => void) {
         { role: 'copy' },
         { role: 'paste' },
         // Selects text in a field, otherwise every account (the renderer decides).
-        { label: 'Select All', accelerator: 'CmdOrCtrl+A', click: () => send({ type: 'select-all' }) },
-        { label: 'Deselect All', accelerator: 'CmdOrCtrl+Shift+A', click: () => send({ type: 'deselect-all' }) },
+        { label: 'Select All', accelerator: 'CmdOrCtrl+A', click: run({ type: 'select-all' }) },
+        { label: 'Deselect All', accelerator: 'CmdOrCtrl+Shift+A', click: run({ type: 'deselect-all' }) },
         { type: 'separator' },
-        { label: 'Command Palette…', accelerator: 'CmdOrCtrl+K', click: () => send({ type: 'open-palette' }) },
-        { label: 'Find Account…', accelerator: 'CmdOrCtrl+F', click: () => send({ type: 'open-palette' }) }
+        { label: 'Command Palette…', accelerator: 'CmdOrCtrl+K', click: run({ type: 'open-palette' }) },
+        { label: 'Find Account…', accelerator: 'CmdOrCtrl+F', click: run({ type: 'open-palette' }) }
       ]
     },
     {
       label: 'Account',
       submenu: [
-        { label: 'Save Profile', accelerator: 'CmdOrCtrl+S', click: () => send({ type: 'save' }) },
-        { label: 'Refresh', accelerator: 'CmdOrCtrl+R', click: () => send({ type: 'refresh' }) },
+        { label: 'Save Profile', accelerator: 'CmdOrCtrl+S', click: run({ type: 'save' }) },
+        { label: 'Refresh', accelerator: 'CmdOrCtrl+R', click: run({ type: 'refresh' }) },
         {
           label: 'Switch Profile / Hack Club Auth',
           accelerator: 'CmdOrCtrl+Shift+D',
-          click: () => send({ type: 'toggle-tab' })
+          click: run({ type: 'toggle-tab' })
         },
         { type: 'separator' },
-        { label: 'Pin / Unpin', accelerator: 'CmdOrCtrl+Shift+P', click: () => send({ type: 'toggle-pin' }) },
-        { label: 'Move Up', accelerator: 'Alt+CmdOrCtrl+Up', click: () => send({ type: 'move', direction: 'up' }) },
-        { label: 'Move Down', accelerator: 'Alt+CmdOrCtrl+Down', click: () => send({ type: 'move', direction: 'down' }) },
-        { label: 'New Group…', accelerator: 'CmdOrCtrl+Shift+N', click: () => send({ type: 'new-group' }) },
-        { label: 'New Tag…', accelerator: 'CmdOrCtrl+Shift+T', click: () => send({ type: 'new-tag' }) },
+        { label: 'Pin / Unpin', accelerator: 'CmdOrCtrl+Shift+P', click: run({ type: 'toggle-pin' }) },
+        { label: 'Move Up', accelerator: 'Alt+CmdOrCtrl+Up', click: run({ type: 'move', direction: 'up' }) },
+        { label: 'Move Down', accelerator: 'Alt+CmdOrCtrl+Down', click: run({ type: 'move', direction: 'down' }) },
+        { label: 'New Group…', accelerator: 'CmdOrCtrl+Shift+N', click: run({ type: 'new-group' }) },
+        { label: 'New Tag…', accelerator: 'CmdOrCtrl+Shift+T', click: run({ type: 'new-tag' }) },
         { type: 'separator' },
         ...accountSwitches,
         { type: 'separator' },
-        { label: 'Sign Out and Remove…', click: () => send({ type: 'sign-out' }) }
+        { label: 'Sign Out and Remove…', click: run({ type: 'sign-out' }) }
       ]
     },
     {
       label: 'View',
       submenu: [
-        { label: 'Filter Accounts…', accelerator: 'CmdOrCtrl+Shift+L', click: () => send({ type: 'filter' }) },
+        { label: 'Filter Accounts…', accelerator: 'CmdOrCtrl+Shift+L', click: run({ type: 'filter' }) },
         { type: 'separator' },
         ...(app.isPackaged ? [] : [{ role: 'toggleDevTools' as const }, { type: 'separator' as const }]),
         { role: 'resetZoom' },
