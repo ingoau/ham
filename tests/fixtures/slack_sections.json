@@ -1,0 +1,368 @@
+{
+ "ok": true,
+ "result": {
+  "data": {
+   "user": {
+    "id": "U0TEST",
+    "isSelf": true,
+    "profileSections": [
+     {
+      "id": "U0TEST:section:PsHEAD",
+      "sectionId": "PsHEAD",
+      "label": "Header",
+      "order": 1,
+      "type": "HEADER",
+      "canEdit": false,
+      "profileElements": [
+       {
+        "id": "U0TEST:section:PsHEAD:PeTITLE",
+        "hint": "",
+        "isFilterable": false,
+        "isScimManaged": true,
+        "isHidden": false,
+        "isMissing": false,
+        "label": "Title",
+        "order": 1,
+        "type": "TEXT",
+        "elementKey": "title",
+        "elementId": "PeTITLE",
+        "legacyFieldId": "XfTITLE",
+        "permissions": {
+         "api": [],
+         "ui": true,
+         "scim": false,
+         "__typename": "ProfileElementWritePermissions"
+        },
+        "defaultVisibility": "INTERNAL_ONLY",
+        "__typename": "ProfileTextElement",
+        "text": "Club leader",
+        "options": null
+       },
+       {
+        "id": "U0TEST:section:PsHEAD:PeREC",
+        "hint": "",
+        "isFilterable": false,
+        "isScimManaged": false,
+        "isHidden": false,
+        "isMissing": false,
+        "label": "Name Recording",
+        "order": 1,
+        "type": "FILE",
+        "elementKey": "Name Recording",
+        "elementId": "PeREC",
+        "legacyFieldId": "XfREC",
+        "permissions": {
+         "api": [],
+         "ui": true,
+         "scim": false,
+         "__typename": "ProfileElementWritePermissions"
+        },
+        "defaultVisibility": "INTERNAL_ONLY",
+        "__typename": "ProfileFileElement",
+        "fileId": "F123"
+       },
+       {
+        "id": "U0TEST:section:PsHEAD:PePRON",
+        "hint": "",
+        "isFilterable": false,
+        "isScimManaged": false,
+        "isHidden": false,
+        "isMissing": false,
+        "label": "Name Pronunciation",
+        "order": 1,
+        "type": "TEXT",
+        "elementKey": "Name Pronunciation",
+        "elementId": "PePRON",
+        "legacyFieldId": "XfPRON",
+        "permissions": {
+         "api": [],
+         "ui": true,
+         "scim": false,
+         "__typename": "ProfileElementWritePermissions"
+        },
+        "defaultVisibility": "INTERNAL_ONLY",
+        "__typename": "ProfileTextElement",
+        "text": "",
+        "options": null
+       }
+      ],
+      "__typename": "ProfileSection"
+     },
+     {
+      "id": "U0TEST:section:PsCONTACT",
+      "sectionId": "PsCONTACT",
+      "label": "Contact information",
+      "order": 2,
+      "type": "CONTACT",
+      "canEdit": true,
+      "profileElements": [
+       {
+        "id": "U0TEST:section:PsCONTACT:PeEMAIL",
+        "hint": "",
+        "isFilterable": false,
+        "isScimManaged": true,
+        "isHidden": false,
+        "isMissing": false,
+        "label": "Email Address",
+        "order": 1,
+        "type": "TEXT",
+        "elementKey": "email",
+        "elementId": "PeEMAIL",
+        "legacyFieldId": "XfEMAIL",
+        "permissions": {
+         "api": [],
+         "ui": false,
+         "scim": false,
+         "__typename": "ProfileElementWritePermissions"
+        },
+        "defaultVisibility": "INTERNAL_ONLY",
+        "__typename": "ProfileTextElement",
+        "text": "fiona@example.com",
+        "options": null
+       },
+       {
+        "id": "U0TEST:section:PsCONTACT:PePHONE",
+        "hint": "",
+        "isFilterable": false,
+        "isScimManaged": false,
+        "isHidden": false,
+        "isMissing": false,
+        "label": "Phone",
+        "order": 1,
+        "type": "TEXT",
+        "elementKey": "Alternate Phone",
+        "elementId": "PePHONE",
+        "legacyFieldId": "XfPHONE",
+        "permissions": {
+         "api": [],
+         "ui": true,
+         "scim": false,
+         "__typename": "ProfileElementWritePermissions"
+        },
+        "defaultVisibility": "INTERNAL_ONLY",
+        "__typename": "ProfileTextElement",
+        "text": "",
+        "options": null
+       }
+      ],
+      "__typename": "ProfileSection"
+     },
+     {
+      "id": "U0TEST:section:PsPEOPLE",
+      "sectionId": "PsPEOPLE",
+      "label": "People",
+      "order": 3,
+      "type": "PEOPLE",
+      "canEdit": true,
+      "profileElements": [
+       {
+        "id": "U0TEST:section:PsPEOPLE:PeMGR",
+        "hint": "",
+        "isFilterable": false,
+        "isScimManaged": false,
+        "isHidden": false,
+        "isMissing": false,
+        "label": "Manager",
+        "order": 1,
+        "type": "PERSON",
+        "elementKey": "custom_1",
+        "elementId": "PeMGR",
+        "legacyFieldId": "XfMGR",
+        "permissions": {
+         "api": [],
+         "ui": true,
+         "scim": false,
+         "__typename": "ProfileElementWritePermissions"
+        },
+        "defaultVisibility": "INTERNAL_ONLY",
+        "__typename": "ProfilePersonElement",
+        "persons": [
+         "U0MANAGER"
+        ]
+       }
+      ],
+      "__typename": "ProfileSection"
+     },
+     {
+      "id": "U0TEST:section:PsABOUT",
+      "sectionId": "PsABOUT",
+      "label": "About me",
+      "order": 5,
+      "type": "ADDITIONAL_INFO",
+      "canEdit": true,
+      "profileElements": [
+       {
+        "id": "U0TEST:section:PsABOUT:PeSTART",
+        "hint": "",
+        "isFilterable": false,
+        "isScimManaged": false,
+        "isHidden": false,
+        "isMissing": false,
+        "label": "Start Date",
+        "order": 1,
+        "type": "DATE",
+        "elementKey": "Start Date",
+        "elementId": "PeSTART",
+        "legacyFieldId": "XfSTART",
+        "permissions": {
+         "api": [],
+         "ui": true,
+         "scim": false,
+         "__typename": "ProfileElementWritePermissions"
+        },
+        "defaultVisibility": "INTERNAL_ONLY",
+        "__typename": "ProfileDateElement",
+        "date": "2025-12-13"
+       },
+       {
+        "id": "U0TEST:section:PsABOUT:PeWEB",
+        "hint": "",
+        "isFilterable": false,
+        "isScimManaged": false,
+        "isHidden": false,
+        "isMissing": false,
+        "label": "Website",
+        "order": 1,
+        "type": "LINK",
+        "elementKey": "key_1",
+        "elementId": "PeWEB",
+        "legacyFieldId": "XfWEB",
+        "permissions": {
+         "api": [],
+         "ui": true,
+         "scim": false,
+         "__typename": "ProfileElementWritePermissions"
+        },
+        "defaultVisibility": "INTERNAL_ONLY",
+        "__typename": "ProfileLinkElement",
+        "uri": "https://fiona.dev",
+        "displayText": "fiona.dev"
+       },
+       {
+        "id": "U0TEST:section:PsABOUT:PeSCHOOL",
+        "hint": "",
+        "isFilterable": false,
+        "isScimManaged": false,
+        "isHidden": false,
+        "isMissing": false,
+        "label": "School",
+        "order": 1,
+        "type": "TEXT",
+        "elementKey": "key_2",
+        "elementId": "PeSCHOOL",
+        "legacyFieldId": "XfSCHOOL",
+        "permissions": {
+         "api": [],
+         "ui": true,
+         "scim": false,
+         "__typename": "ProfileElementWritePermissions"
+        },
+        "defaultVisibility": "INTERNAL_ONLY",
+        "__typename": "ProfileTextElement",
+        "text": "",
+        "options": null
+       },
+       {
+        "id": "U0TEST:section:PsABOUT:PeFOOD",
+        "hint": "e.g. tacos, cake, microwaved apples",
+        "isFilterable": false,
+        "isScimManaged": false,
+        "isHidden": false,
+        "isMissing": false,
+        "label": "Fav Food(s)",
+        "order": 1,
+        "type": "TEXT",
+        "elementKey": "key_3",
+        "elementId": "PeFOOD",
+        "legacyFieldId": "XfFOOD",
+        "permissions": {
+         "api": [],
+         "ui": true,
+         "scim": false,
+         "__typename": "ProfileElementWritePermissions"
+        },
+        "defaultVisibility": "INTERNAL_ONLY",
+        "__typename": "ProfileTextElement",
+        "text": "Dumplings",
+        "options": null
+       },
+       {
+        "id": "U0TEST:section:PsABOUT:PeGOLD",
+        "hint": "",
+        "isFilterable": false,
+        "isScimManaged": false,
+        "isHidden": false,
+        "isMissing": false,
+        "label": "Hack Club Gold since",
+        "order": 1,
+        "type": "TEXT",
+        "elementKey": "key_4",
+        "elementId": "PeGOLD",
+        "legacyFieldId": "XfGOLD",
+        "permissions": {
+         "api": [],
+         "ui": false,
+         "scim": false,
+         "__typename": "ProfileElementWritePermissions"
+        },
+        "defaultVisibility": "INTERNAL_ONLY",
+        "__typename": "ProfileTextElement",
+        "text": "2025",
+        "options": null
+       },
+       {
+        "id": "U0TEST:section:PsABOUT:PeBLANK",
+        "hint": "",
+        "isFilterable": false,
+        "isScimManaged": false,
+        "isHidden": false,
+        "isMissing": false,
+        "label": "​",
+        "order": 1,
+        "type": "TEXT",
+        "elementKey": "key_5",
+        "elementId": "PeBLANK",
+        "legacyFieldId": "XfBLANK",
+        "permissions": {
+         "api": [],
+         "ui": false,
+         "scim": false,
+         "__typename": "ProfileElementWritePermissions"
+        },
+        "defaultVisibility": "INTERNAL_ONLY",
+        "__typename": "ProfileTextElement",
+        "text": "",
+        "options": null
+       },
+       {
+        "id": "U0TEST:section:PsABOUT:PeBSKY",
+        "hint": "",
+        "isFilterable": false,
+        "isScimManaged": false,
+        "isHidden": true,
+        "isMissing": false,
+        "label": "Bluesky Username",
+        "order": 1,
+        "type": "LINK",
+        "elementKey": "key_6",
+        "elementId": "PeBSKY",
+        "legacyFieldId": "XfBSKY",
+        "permissions": {
+         "api": [],
+         "ui": true,
+         "scim": false,
+         "__typename": "ProfileElementWritePermissions"
+        },
+        "defaultVisibility": "INTERNAL_ONLY",
+        "__typename": "ProfileLinkElement",
+        "uri": "",
+        "displayText": ""
+       }
+      ],
+      "__typename": "ProfileSection"
+     }
+    ]
+   }
+  }
+ }
+}

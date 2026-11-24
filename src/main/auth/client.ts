@@ -1,9 +1,10 @@
 // Talks to auth.hackclub.com the way its own pages do: form posts with the
 // Rails CSRF token, inside one account's cookie partition.
 import { session, type Session } from 'electron'
-import type { ProfileInput } from '@shared/types'
+import type { ProfileInput, SlackProfile } from '@shared/types'
 import { request, NetworkError } from '../http'
-import type { AuthBackend, ProfileOutcome, SaveOutcome, StartOutcome, VerifyOutcome } from './backend'
+import { SlackApi, SlackNetworkError, SlackRejected, SlackSignedOut, type SlackRead } from '../slack-api'
+import type { AuthBackend, ProfileOutcome, SaveOutcome, SlackOutcome, StartOutcome, VerifyOutcome } from './backend'
 import { AUTH_ORIGIN, classifyLoginRedirect, isSignedOutRedirect, normalizeBackupCode, normalizeCode, type RawResponse } from './flow'
 import { parseCsrf, parseErrors, parseProfile, parseSlackId } from './pages'
 
@@ -13,9 +14,11 @@ export class AuthClient implements AuthBackend {
   private readonly ses: Session
   private csrf: string | null = null
   private attemptPathValue: string | null = null
+  private readonly slack: SlackApi
 
   constructor(partition: string) {
     this.ses = session.fromPartition(partition)
+    this.slack = new SlackApi(this.ses)
   }
 
   // --- requests -----------------------------------------------------------
@@ -261,6 +264,14 @@ export class AuthClient implements AuthBackend {
     }
   }
 
+  async readSlack(): Promise<SlackOutcome> {
+    return slackGuard(() => this.slack.read())
+  }
+
+  async saveSlack(changes: SlackProfile): Promise<SlackOutcome> {
+    return slackGuard(() => this.slack.save(changes))
+  }
+
   /** The current CSRF token, fetching the home page if there isn't one yet. */
   async csrfToken(): Promise<string | null> {
     if (!this.csrf) await this.get('/')
@@ -270,6 +281,7 @@ export class AuthClient implements AuthBackend {
   async clearLocalData(): Promise<void> {
     this.csrf = null
     this.attemptPathValue = null
+    this.slack.reset()
     await this.ses.clearStorageData()
     await this.ses.clearCache()
   }
@@ -277,6 +289,17 @@ export class AuthClient implements AuthBackend {
 
 function expired(): VerifyOutcome {
   return { kind: 'unexpected', message: 'This sign-in has expired. Start again.' }
+}
+
+async function slackGuard(fn: () => Promise<SlackRead>): Promise<SlackOutcome> {
+  try {
+    return { kind: 'ok', ...(await fn()) }
+  } catch (err) {
+    if (err instanceof SlackSignedOut) return { kind: 'signed-out' }
+    if (err instanceof SlackRejected) return { kind: 'rejected', message: err.message }
+    if (err instanceof SlackNetworkError) return { kind: 'network', message: err.message }
+    return { kind: 'network', message: err instanceof Error ? err.message : String(err) }
+  }
 }
 
 const startError = (message: string): StartOutcome => ({ kind: 'unexpected', message })

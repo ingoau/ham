@@ -1,28 +1,33 @@
 // Bulk edit planning: which selected accounts a template applies to, what it
 // renders for each, and which rows are skipped, unchanged or invalid.
-import { checkValue, fieldValue, templateAccount, type FieldDef, type TemplateContext } from '@shared/fields'
+import { checkValue, fieldValue, isSlackField, templateAccount, type FieldDef, type TemplateContext } from '@shared/fields'
 import type { Account } from '@shared/types'
 import type { TemplateJob, TemplateResult } from './templates'
 
-export function emptyContext(): TemplateContext {
-  return { index: 1, total: 1, current: '', account: templateAccount(null) }
+export function emptyContext(custom: readonly FieldDef[] = []): TemplateContext {
+  return { index: 1, total: 1, current: '', account: templateAccount(null, custom) }
 }
 
-export function contextFor(a: Account, index: number, total: number, current: string): TemplateContext {
-  return { index, total, current, account: templateAccount(a) }
+/** `custom`: the workspace's own Slack fields (slackCustomFields). */
+export function contextFor(a: Account, index: number, total: number, current: string, custom: readonly FieldDef[]): TemplateContext {
+  return { index, total, current, account: templateAccount(a, custom) }
 }
 
 /** Why an account can't take this field, or null. */
 export function skipReason(a: Account, field: FieldDef): string | null {
   if (field.local) return null
+  if (isSlackField(field)) {
+    // Slack saves with the account's own Slack session, which outlives Hack Club's.
+    if (a.slack.session) return null
+    return a.slack.linked === false ? 'Not on Slack' : 'Open Slack first'
+  }
   if (a.status !== 'signed-in') return 'Not signed in'
-  if (!field.hca && !a.slack.linked) return 'Not on Slack'
   return null
 }
 
-export function bulkJobs(picked: Account[], field: FieldDef, tpl: string): { targets: Account[]; jobs: TemplateJob[] } {
+export function bulkJobs(picked: Account[], field: FieldDef, tpl: string, custom: readonly FieldDef[]): { targets: Account[]; jobs: TemplateJob[] } {
   const targets = picked.filter((a) => !skipReason(a, field))
-  const jobs = targets.map((a, i) => ({ tpl, ctx: contextFor(a, i + 1, targets.length, fieldValue(a, field)) }))
+  const jobs = targets.map((a, i) => ({ tpl, ctx: contextFor(a, i + 1, targets.length, fieldValue(a, field), custom) }))
   return { targets, jobs }
 }
 

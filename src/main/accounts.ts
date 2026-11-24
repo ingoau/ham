@@ -4,7 +4,8 @@
 // account has its own session partition, and the in-progress attempt is
 // persisted so a restart within the 15-minute window picks it up again.
 import { randomUUID } from 'node:crypto'
-import { TAG_COLORS, type Account, type AccountGroup, type AccountTag, type CodeResult, type PendingInfo, type ProfileInput, type RefreshResult, type SaveResult, type SlackInfo, type TagColor } from '@shared/types'
+import { TAG_COLORS, type Account, type AccountGroup, type AccountTag, type CodeResult, type PendingInfo, type ProfileInput, type RefreshResult, type SaveResult, type SlackFieldDef, type SlackInfo, type SlackProfile, type SlackSaveResult, type TagColor } from '@shared/types'
+import type { SlackOutcome } from './auth/backend'
 import type { AuthBackend, BackendFactory, StartOutcome, VerifyOutcome } from './auth/backend'
 import { isValidEmail } from './auth/flow'
 import { CHECK_LIMIT, LOGIN_LIMIT, LOGIN_PER_EMAIL_LIMIT, SlidingWindow } from './limits'
@@ -460,7 +461,9 @@ export class AccountService {
     this.lastRefreshAll = Date.now()
     this.markExpired()
     const signedIn = this.store.accounts.filter((a) => a.status === 'signed-in')
-    await Promise.allSettled(signedIn.map((a) => this.refresh(a.id)))
+    // A Slack session outlives the Hack Club one, so signed-out accounts can still read Slack.
+    const slackOnly = this.store.accounts.filter((a) => a.status === 'signed-out' && a.slack.session)
+    await Promise.allSettled([...signedIn.map((a) => this.refresh(a.id)), ...slackOnly.map((a) => this.refreshSlack(a.id))])
   }
 
   /** Mark accounts whose session cookie has passed its expiry as signed out. */
@@ -493,11 +496,65 @@ export class AccountService {
     }
   }
 
-  /** Slack status from HCA's /slack-id plus the partition's Slack cookie. */
+  /**
+   * Slack status from HCA's /slack-id plus the partition's Slack cookie, and
+   * the Slack profile when there's a Slack session to read it with.
+   */
   private async slackInfo(backend: AuthBackend, prev: SlackInfo): Promise<SlackInfo> {
-    const [session, slackId] = await Promise.all([backend.hasSlackSession(), backend.slackId()])
-    if (slackId === undefined) return { ...prev, session, linked: session ? true : prev.linked }
-    return { ...prev, session, linked: slackId !== null || session, id: slackId ?? undefined }
+    const [cookie, slackId] = await Promise.all([backend.hasSlackSession(), backend.slackId()])
+    let next: SlackInfo =
+      slackId === undefined
+        ? { ...prev, session: cookie, linked: cookie ? true : prev.linked }
+        : { ...prev, session: cookie, linked: slackId !== null || cookie, id: slackId ?? prev.id }
+    if (cookie) next = this.withSlackRead(next, await backend.readSlack())
+    return next
+  }
+
+  /** Fold a Slack read into the account's Slack info (and the app's field list). */
+  private withSlackRead(prev: SlackInfo, read: SlackOutcome): SlackInfo {
+    if (read.kind === 'signed-out') return { ...prev, session: false }
+    if (read.kind !== 'ok') return prev
+    this.setSlackFields(read.fields)
+    return { ...prev, linked: true, session: true, id: read.userId, profile: read.profile, users: read.users, fetchedAt: new Date().toISOString() }
+  }
+
+  private setSlackFields(fields: SlackFieldDef[]) {
+    if (JSON.stringify(fields) !== JSON.stringify(this.store.slackFields)) this.store.slackFields = fields
+  }
+
+  /** Read just the Slack profile again (after opening Slack, or for a signed-out account). */
+  async refreshSlack(id: string): Promise<void> {
+    const a = this.store.find(id)
+    if (!a) return
+    const backend = this.backend(a.partition)
+    if (!(await backend.hasSlackSession())) {
+      if (a.slack.session) this.setSlack(id, { session: false })
+      return
+    }
+    const read = await backend.readSlack()
+    const latest = this.store.find(id)
+    if (latest) this.update(id, { slack: this.withSlackRead(latest.slack, read) })
+  }
+
+  async saveSlack(id: string, changes: SlackProfile): Promise<SlackSaveResult> {
+    const a = this.store.find(id)
+    if (!a) return { ok: false, reason: 'rejected', message: 'Account not found.' }
+    if (!a.slack.session) return { ok: false, reason: 'slack-signed-out' }
+    if ('real_name' in changes && !changes.real_name.trim()) return { ok: false, reason: 'rejected', message: "Full name can't be blank." }
+    if (Object.keys(changes).length === 0) return { ok: true, account: toPublic(a) }
+    const result = await this.backend(a.partition).saveSlack(changes)
+    const latest = this.store.find(id)
+    if (!latest) return { ok: false, reason: 'rejected', message: 'Account not found.' }
+    const slack = this.withSlackRead(latest.slack, result)
+    const next = this.update(id, { slack })!
+    switch (result.kind) {
+      case 'ok':
+        return { ok: true, account: toPublic(next) }
+      case 'signed-out':
+        return { ok: false, reason: 'slack-signed-out' }
+      default:
+        return { ok: false, reason: result.kind, message: result.message }
+    }
   }
 
   /** A name only HAM shows. Empty clears it. */

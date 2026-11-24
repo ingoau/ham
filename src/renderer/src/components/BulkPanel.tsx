@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react'
 import * as Popover from '@radix-ui/react-popover'
 import { Command } from 'cmdk'
 import { Check, ChevronDown, Folder, LogIn, Pin, PinOff, Tag, X } from 'lucide-react'
-import { ALL_FIELDS, FIELD_GROUPS, HCA_FIELDS, fieldEditable, type FieldDef } from '@shared/fields'
+import { FIELD_GROUPS, HCA_FIELDS, fieldEditable, type FieldDef } from '@shared/fields'
 import type { Account, AccountTag } from '@shared/types'
 import { bulkJobs, planBulk, type BulkPlan } from '../bulk'
 import { useTemplates } from '../templates'
@@ -22,9 +22,12 @@ interface Props {
   onTags(): void
   onSignInAgain(): void
   onApply(field: FieldDef, plan: BulkPlan): void
+  /** Every field (allFields), and the workspace's own Slack ones among them. */
+  fields: FieldDef[]
+  customFields: FieldDef[]
 }
 
-function FieldPicker({ field, onPick }: { field: FieldDef; onPick(f: FieldDef): void }) {
+function FieldPicker({ field, fields, onPick }: { field: FieldDef; fields: FieldDef[]; onPick(f: FieldDef): void }) {
   const [open, setOpen] = useState(false)
   return (
     <Popover.Root open={open} onOpenChange={setOpen}>
@@ -43,9 +46,9 @@ function FieldPicker({ field, onPick }: { field: FieldDef; onPick(f: FieldDef): 
             <Command.Input className="cmdk-input small" placeholder="Search fields" autoFocus />
             <Command.List className="cmdk-list">
               <Command.Empty className="cmdk-empty">No fields match</Command.Empty>
-              {FIELD_GROUPS.map((g) => (
+              {FIELD_GROUPS.filter((g) => fields.some((f) => f.group === g)).map((g) => (
                 <Command.Group key={g} heading={g} className="cmdk-group">
-                  {ALL_FIELDS.filter((f) => f.group === g).map((f) => {
+                  {fields.filter((f) => f.group === g).map((f) => {
                     const editable = fieldEditable(f)
                     return (
                       <Command.Item
@@ -59,7 +62,7 @@ function FieldPicker({ field, onPick }: { field: FieldDef; onPick(f: FieldDef): 
                         }}
                       >
                         <span className="cmdk-label">{f.name}</span>
-                        {!editable && <span className="muted small">{f.locked ? 'Admin only' : 'Needs Slack'}</span>}
+                        {!editable && <span className="muted small">Admin only</span>}
                         {f.id === field.id && <Check size={14} aria-hidden />}
                       </Command.Item>
                     )
@@ -75,10 +78,12 @@ function FieldPicker({ field, onPick }: { field: FieldDef; onPick(f: FieldDef): 
 }
 
 /** The right pane while accounts are selected: who's selected, quick actions, and bulk edit. */
-export function BulkPanel({ picked, busy, onClear, onPin, onGroup, onTags, onSignInAgain, onApply }: Props) {
-  const [field, setField] = useState<FieldDef>(HCA_FIELDS[0])
+export function BulkPanel({ picked, busy, onClear, onPin, onGroup, onTags, onSignInAgain, onApply, fields, customFields }: Props) {
+  const [pickedField, setField] = useState<FieldDef>(HCA_FIELDS[0])
+  // Slack's field list can change under the picker: keep the newest copy of the chosen field.
+  const field = fields.find((f) => f.id === pickedField.id) ?? pickedField
   const [tpl, setTpl] = useState('{{ current }}')
-  const { targets, jobs } = useMemo(() => bulkJobs(picked, field, tpl), [picked, field, tpl])
+  const { targets, jobs } = useMemo(() => bulkJobs(picked, field, tpl, customFields), [picked, field, tpl, customFields])
   const results = useTemplates(jobs)
   const fresh = results && results.length === jobs.length ? results : null
   const plan = planBulk(picked, field, targets, fresh)
@@ -131,7 +136,7 @@ export function BulkPanel({ picked, busy, onClear, onPin, onGroup, onTags, onSig
         <h2 id="bulk-heading">Bulk edit</h2>
         <div className="field">
           <label htmlFor="bulk-field">Field</label>
-          <FieldPicker field={field} onPick={setField} />
+          <FieldPicker field={field} fields={fields} onPick={setField} />
         </div>
 
         <div className="field">

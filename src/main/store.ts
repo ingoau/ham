@@ -6,7 +6,7 @@ import { app } from 'electron'
 import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { migrateTemplate } from '@shared/fields'
-import { DEFAULT_VIEW, EMPTY_FILTER, NO_TAGS, TAG_COLORS, type Account, type AccountGroup, type AccountTag, type Theme, type ViewSettings } from '@shared/types'
+import { DEFAULT_VIEW, EMPTY_FILTER, NO_TAGS, TAG_COLORS, type Account, type AccountGroup, type AccountTag, type SlackFieldDef, type Theme, type ViewSettings } from '@shared/types'
 
 export interface StoredAccount extends Account {
   /** Electron session partition holding this account's cookies. */
@@ -38,6 +38,8 @@ interface StoreFile {
   accounts: StoredAccount[]
   groups: AccountGroup[]
   tags: AccountTag[]
+  /** Hack Club Slack's own profile fields, as last read from Slack. */
+  slackFields: SlackFieldDef[]
   window?: WindowState
   dismissedUpdate?: string
   theme: Theme
@@ -85,6 +87,7 @@ function migrate(raw: Record<string, unknown>): StoreFile {
           .filter((t) => t && typeof t.id === 'string')
           .map((t) => ({ id: t.id, name: String(t.name ?? ''), color: TAG_COLORS.includes(t.color) ? t.color : 'gray' }))
       : [],
+    slackFields: Array.isArray(raw.slackFields) ? (raw.slackFields as SlackFieldDef[]).filter((f) => f && typeof f.id === 'string' && typeof f.key === 'string') : [],
     window: raw.window as WindowState | undefined,
     dismissedUpdate: raw.dismissedUpdate as string | undefined,
     theme: (raw.theme as Theme) ?? 'system',
@@ -206,6 +209,14 @@ export class Store {
 
   remove(id: string) {
     this.data.accounts = this.data.accounts.filter((a) => a.id !== id)
+    this.flush()
+  }
+
+  get slackFields(): SlackFieldDef[] {
+    return this.data.slackFields
+  }
+  set slackFields(fields: SlackFieldDef[]) {
+    this.data.slackFields = fields
     this.flush()
   }
 

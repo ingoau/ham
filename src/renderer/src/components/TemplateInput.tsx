@@ -5,7 +5,7 @@ import { HighlightStyle, syntaxHighlighting } from '@codemirror/language'
 import { EditorState } from '@codemirror/state'
 import { EditorView, keymap, placeholder as placeholderExt } from '@codemirror/view'
 import { tags } from '@lezer/highlight'
-import { HCA_FIELDS, SLACK_CUSTOM_FIELDS, SLACK_PROFILE_FIELDS } from '@shared/fields'
+import { HCA_FIELDS, SLACK_PROFILE_FIELDS, type FieldDef } from '@shared/fields'
 
 const VARIABLES: Completion[] = [
   { label: 'account', type: 'variable', detail: 'this account' },
@@ -25,8 +25,13 @@ const PROPS: Record<string, Completion[]> = {
     prop('slack', 'Slack profile fields')
   ],
   'account.hca': HCA_FIELDS.map((f) => prop(f.key, f.name)),
-  'account.slack': [...SLACK_PROFILE_FIELDS.map((f) => prop(f.key, f.name)), prop('fields', 'Slack custom fields')],
-  'account.slack.fields': SLACK_CUSTOM_FIELDS.map((f) => prop(f.key, f.name))
+  'account.slack': [...SLACK_PROFILE_FIELDS.map((f) => prop(f.key, f.name)), prop('id', 'Slack user ID'), prop('fields', 'Slack custom fields')],
+  'account.slack.fields': []
+}
+
+/** Offer the workspace's own Slack fields (they come from Slack, so they can change). */
+export function setSlackCompletions(custom: readonly FieldDef[]) {
+  PROPS['account.slack.fields'] = custom.map((f) => prop(f.key, f.name))
 }
 
 const highlight = HighlightStyle.define([

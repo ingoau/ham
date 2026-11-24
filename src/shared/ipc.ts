@@ -9,6 +9,8 @@ import type {
   ProfileInput,
   RefreshResult,
   SaveResult,
+  SlackProfile,
+  SlackSaveResult,
   TagColor,
   Theme,
   UpdateInfo,
@@ -33,6 +35,8 @@ export interface HamApi {
     remove(accountId: string): Promise<{ serverSignedOut: boolean; removed: boolean }>
     refresh(accountId: string): Promise<RefreshResult>
     save(accountId: string, profile: ProfileInput): Promise<SaveResult>
+    /** Save changed Slack profile values (keyed like SlackProfile) with the account's Slack session. */
+    saveSlack(accountId: string, changes: SlackProfile): Promise<SlackSaveResult>
     launchSlack(accountId: string): Promise<void>
     /** Set the name only HAM shows; empty clears it. */
     setLocalName(accountId: string, name: string): Promise<void>
@@ -115,6 +119,7 @@ export type InvokeMethod =
   | 'accounts.remove'
   | 'accounts.refresh'
   | 'accounts.save'
+  | 'accounts.saveSlack'
   | 'accounts.launchSlack'
   | 'accounts.setLocalName'
   | 'accounts.setPinned'
