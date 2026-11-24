@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { MenuCommand } from '@shared/types'
 
-vi.mock('electron', () => ({ app: {}, BrowserWindow: class {}, Menu: {}, shell: {}, webContents: {} }))
+vi.mock('electron', () => ({ app: {}, BrowserWindow: class {}, Menu: {}, shell: {}, webContents: {}, WebContentsView: class {} }))
 const { routeMenuCommand } = await import('../src/main/menu')
 
 const selectAll: MenuCommand = { type: 'select-all' }

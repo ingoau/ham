@@ -4,7 +4,7 @@
 // The menu belongs to the whole app, so its shortcuts also fire in Slack and
 // popped-out Auth windows. HAM's commands act on the main window, so they only
 // run when it has focus; elsewhere a shortcut does the browser's own thing or nothing.
-import { app, BrowserWindow, Menu, shell, webContents, type BaseWindow, type KeyboardEvent, type MenuItemConstructorOptions, type WebContents } from 'electron'
+import { app, BrowserWindow, Menu, shell, webContents, WebContentsView, type BaseWindow, type KeyboardEvent, type MenuItemConstructorOptions, type WebContents } from 'electron'
 import type { MenuCommand } from '@shared/types'
 
 /** Where keyboard focus is: HAM's UI, a page embedded in the main window, or another window. */
@@ -14,7 +14,7 @@ export type MenuAction = 'send' | 'focus-and-send' | 'select-all' | 'unselect' |
 /** Shortcuts that make sense from any window, like Settings, bring the main window forward. */
 const APP_WIDE = new Set<MenuCommand['type']>(['open-settings', 'add-account'])
 
-/** A click in the menu bar always means HAM; a shortcut follows keyboard focus. */
+/** A shortcut follows keyboard focus; other menu-bar clicks act on HAM, except Select All and Deselect All, which act on the focused page. */
 export function routeMenuCommand(command: MenuCommand, focus: MenuFocus, byShortcut: boolean): MenuAction {
   if (focus === 'app') return 'send'
   // Select All in a web page selects its text, never every account.
@@ -28,13 +28,25 @@ export function routeMenuCommand(command: MenuCommand, focus: MenuFocus, byShort
 export function buildMenu(send: (command: MenuCommand) => void, mainWindow: () => BrowserWindow | null) {
   const isMac = process.platform === 'darwin'
 
+  // On macOS the focused page can sit in a window that isn't the active one, so
+  // only trust it when it belongs to the window the shortcut came from.
   const focusOf = (win: BaseWindow | undefined): { focus: MenuFocus; wc: WebContents | null } => {
     const main = mainWindow()
-    const focused = webContents.getFocusedWebContents()
     if (main && !main.isDestroyed() && win === main) {
-      return { focus: !focused || focused === main.webContents ? 'app' : 'embedded', wc: focused }
+      const focused = webContents.getFocusedWebContents()
+      const embedded = main.contentView.children.some((v) => v instanceof WebContentsView && v.webContents === focused)
+      return embedded ? { focus: 'embedded', wc: focused } : { focus: 'app', wc: main.webContents }
     }
-    return { focus: 'other', wc: focused ?? (win instanceof BrowserWindow ? win.webContents : null) }
+    return { focus: 'other', wc: win instanceof BrowserWindow ? win.webContents : null }
+  }
+
+  const focusMainAndSend = (command: MenuCommand) => {
+    const main = mainWindow()
+    if (main && !main.isDestroyed()) {
+      if (main.isMinimized()) main.restore()
+      main.focus()
+    }
+    send(command)
   }
 
   const run =
@@ -44,18 +56,13 @@ export function buildMenu(send: (command: MenuCommand) => void, mainWindow: () =
       switch (routeMenuCommand(command, focus, Boolean(event?.triggeredByAccelerator))) {
         case 'send':
           return send(command)
-        case 'focus-and-send': {
-          const main = mainWindow()
-          if (main && !main.isDestroyed()) {
-            if (main.isMinimized()) main.restore()
-            main.focus()
-          }
-          return send(command)
-        }
+        case 'focus-and-send':
+          return focusMainAndSend(command)
+        // With no page to act on (no window focused), fall back to HAM.
         case 'select-all':
-          return wc?.selectAll()
+          return wc ? wc.selectAll() : focusMainAndSend(command)
         case 'unselect':
-          return wc?.unselect()
+          return wc ? wc.unselect() : focusMainAndSend(command)
         case 'reload':
           return wc?.reload()
       }
