@@ -83,6 +83,7 @@ export interface RawElement {
 export interface RawSection {
   sectionId?: string
   label?: string
+  type?: string
   profileElements?: RawElement[] | null
 }
 
@@ -135,6 +136,7 @@ export function parseSections(sections: RawSection[]): ParsedSections {
         id,
         section: s.sectionId ?? '',
         sectionLabel: s.label ?? '',
+        sectionType: s.type ?? '',
         label,
         hint: (e.hint ?? '').trim(),
         kind,

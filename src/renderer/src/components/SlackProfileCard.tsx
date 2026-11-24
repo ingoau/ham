@@ -134,8 +134,10 @@ export const SlackProfileCard = forwardRef<SlackProfileHandle, Props>(function S
   )
 
   // The workspace's own fields, by Slack's sections. A link's two halves sit together.
+  // Header fields (name pronunciation) go with the names instead of under a heading of their own.
+  const isHeader = (f: FieldDef) => f.slack?.sectionType === 'HEADER'
   const sections: { label: string; fields: FieldDef[] }[] = []
-  for (const f of custom) {
+  for (const f of custom.filter((x) => !isHeader(x))) {
     const name = f.slack?.sectionLabel || 'Other'
     let s = sections.find((x) => x.label === name)
     if (!s) sections.push((s = { label: name, fields: [] }))
@@ -203,10 +205,17 @@ export const SlackProfileCard = forwardRef<SlackProfileHandle, Props>(function S
             {simple(std.get('pronouns')!)}
           </div>
           <div className="grid-2">
-            {simple(std.get('status_emoji')!, { placeholder: ':wave:', className: 'mono-input' })}
-            {simple(std.get('status_text')!, { placeholder: 'What’s happening?' })}
+            {custom.filter(isHeader).map(customField)}
+            {simple(std.get('tz')!, { list: 'slack-timezones', placeholder: 'e.g. Australia/Sydney' })}
           </div>
-          {simple(std.get('tz')!, { list: 'slack-timezones', placeholder: 'e.g. Australia/Sydney' })}
+
+          <fieldset className="field-section">
+            <legend>Status</legend>
+            <div className="grid-2">
+              {simple(std.get('status_emoji')!, { placeholder: ':wave:', className: 'mono-input' })}
+              {simple(std.get('status_text')!, { placeholder: 'What’s happening?' })}
+            </div>
+          </fieldset>
 
           {sections.map((s) => (
             <fieldset key={s.label} className="field-section">

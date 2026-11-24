@@ -49,6 +49,8 @@ export interface SlackFieldDef {
   /** The section it sits in ("Ps…"). Slack saves a section at a time. */
   section: string
   sectionLabel: string
+  /** Slack's section type: HEADER fields (name pronunciation) belong with the name, not under a heading. */
+  sectionType?: string
   label: string
   hint: string
   kind: SlackFieldKind

@@ -43,7 +43,7 @@ const field = (id: string, section: string, sectionLabel: string, label: string,
 
 /** A few of Hack Club Slack's own fields, one of each kind. */
 export const MOCK_SLACK_FIELDS: SlackFieldDef[] = [
-  field('PeDEMO1', 'PsHEAD', 'Header', 'Name Pronunciation', 'text', 'name_pronunciation'),
+  field('PeDEMO1', 'PsHEAD', 'Header', 'Name Pronunciation', 'text', 'name_pronunciation', { sectionType: 'HEADER' }),
   field('PeDEMO2', 'PsPEOPLE', 'People', 'Manager', 'person', 'manager'),
   field('PeDEMO3', 'PsABOUT', 'About me', 'Website', 'link', 'website'),
   field('PeDEMO4', 'PsABOUT', 'About me', 'School', 'text', 'school'),
