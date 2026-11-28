@@ -7,6 +7,8 @@ import { bestName } from '../util'
 export interface SlackProfileHandle {
   save(): void
   revert(): boolean
+  /** Whether there are unsaved edits. */
+  isDirty(): boolean
 }
 
 interface Props {
@@ -153,6 +155,8 @@ export const SlackProfileCard = forwardRef<SlackProfileHandle, Props>(function S
 
   useImperativeHandle(ref, () => ({
     save: () => void save(),
+    // Edited by the user, not just behind a fresh read from Slack the form hasn't merged yet.
+    isDirty: () => changed.some((f) => (draft[f.id] ?? '') !== (base.current.values[f.id] ?? '')),
     revert: () => {
       if (!dirty) return false
       revert()

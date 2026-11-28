@@ -3,17 +3,17 @@ import { Loader2 } from 'lucide-react'
 import type { Account, InboxStatus } from '@shared/types'
 import { attemptLeft, mmss } from '../view'
 import { CodeField } from './CodeField'
+import { Ticking } from './Ticking'
 
 interface Props {
   account: Account
   inbox: InboxStatus
-  now: number
   onRemove(): void
   onOpenSettings(): void
 }
 
 /** The inline sign-in for an account that's still being added (or signing in again). */
-export function PendingPane({ account: a, inbox, now, onRemove, onOpenSettings }: Props) {
+export function PendingPane({ account: a, inbox, onRemove, onOpenSettings }: Props) {
   const [code, setCode] = useState('')
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -21,14 +21,16 @@ export function PendingPane({ account: a, inbox, now, onRemove, onOpenSettings }
   const inputRef = useRef<HTMLInputElement>(null)
   const p = a.pending
   const inboxOn = inbox.state === 'connected'
-  const left = mmss(attemptLeft(a, now))
+  // Only the countdown text ticks, not the whole pane.
+  const left = <Ticking>{(now) => mmss(attemptLeft(a, now))}</Ticking>
   const expired = !!p?.expired && !inboxOn
 
+  const startOnBackup = a.pending?.second === 'backup'
   useEffect(() => {
     setCode('')
     setError(null)
-    setBackup(a.pending?.second === 'backup')
-  }, [a.id, a.status])
+    setBackup(startOnBackup)
+  }, [a.id, a.status, startOnBackup])
 
   useEffect(() => {
     if ((a.status === 'waiting' && !inboxOn) || a.status === 'needs2fa') inputRef.current?.focus()
@@ -66,7 +68,9 @@ export function PendingPane({ account: a, inbox, now, onRemove, onOpenSettings }
       body = (
         <div className="pending-head">
           <h2>Queued</h2>
-          <p className="muted">{p?.startsAt && Date.parse(p.startsAt) > now ? `Starts in ${mmss(Date.parse(p.startsAt) - now)}.` : 'Starting…'}</p>
+          <p className="muted">
+            <Ticking>{(now) => (p?.startsAt && Date.parse(p.startsAt) > now ? `Starts in ${mmss(Date.parse(p.startsAt) - now)}.` : 'Starting…')}</Ticking>
+          </p>
         </div>
       )
       break

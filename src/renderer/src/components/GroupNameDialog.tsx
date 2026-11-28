@@ -9,7 +9,6 @@ interface Props {
   count: number
   /** Overrides for other names (an account's local name). */
   title?: string
-  lead?: string
   placeholder?: string
   submitLabel?: string
   /** Allow saving an empty name (clears it). */
@@ -19,7 +18,7 @@ interface Props {
 }
 
 /** A one-field name dialog: new group, rename group, or an account's local name. */
-export function GroupNameDialog({ open = true, initial, count, title, lead, placeholder, submitLabel, allowEmpty, onSubmit, onClose }: Props) {
+export function GroupNameDialog({ open = true, initial, count, title, placeholder, submitLabel, allowEmpty, onSubmit, onClose }: Props) {
   const [name, setName] = useState(initial)
   const renaming = initial !== ''
   const clean = name.replace(/\s+/g, ' ').trim()
@@ -28,14 +27,9 @@ export function GroupNameDialog({ open = true, initial, count, title, lead, plac
     <Dialog.Root open={open} onOpenChange={(o) => !o && onClose()}>
       <Dialog.Portal>
         <Dialog.Overlay className="overlay" />
-        <Dialog.Content className="sheet" aria-describedby={lead ? 'name-dialog-lead' : undefined}>
+        <Dialog.Content className="sheet" aria-describedby={undefined}>
           <div className="sheet-head">
             <Dialog.Title>{title ?? (renaming ? 'Rename group' : 'New group')}</Dialog.Title>
-            {lead && (
-              <Dialog.Description className="lead" id="name-dialog-lead">
-                {lead}
-              </Dialog.Description>
-            )}
           </div>
           <form
             onSubmit={(e) => {
