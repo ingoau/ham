@@ -1,8 +1,12 @@
 // The main process side of window.ham: one handler per InvokeMethod. Only the
 // app's own window may call in, and every argument is checked here.
-import { clipboard, ipcMain, Menu, shell, type BrowserWindow, type MenuItemConstructorOptions } from 'electron'
+import { randomUUID } from 'node:crypto'
+import { readFile, stat, writeFile } from 'node:fs/promises'
+import { join } from 'node:path'
+import { app, clipboard, dialog, ipcMain, Menu, shell, type BrowserWindow, type MenuItemConstructorOptions } from 'electron'
 import { IPC, type InvokeMethod } from '@shared/ipc'
-import type { AppState, ContextMenuItem, FindResult, HamEvent, SlackProfile, SlackTokensResult, TagColor, Theme, UpdateInfo } from '@shared/types'
+import type { AppState, ContextMenuItem, ExportResult, FindResult, HamEvent, ImportPreview, ImportResult, SlackProfile, SlackTokensResult, TagColor, Theme, UpdateInfo } from '@shared/types'
+import { MAX_EXPORT_BYTES, buildExport, exportFileName, parseExport, planImport, viewFromImport, type ImportPlan } from './account-export'
 import type { AccountService } from './accounts'
 import { hcaAccountExists, mockAccountExists } from './auth/check'
 import { MockBackend, mockSlackTokens } from './auth/mock'
@@ -44,6 +48,9 @@ function cleanSlackChanges(changes: unknown): SlackProfile {
 export function registerIpc(ctx: IpcContext) {
   const { accounts, store, inbox, mock } = ctx
   const tokenRuns = new Map<string, Promise<SlackTokensResult>>()
+  /** The last checked import file, until it's confirmed. */
+  let pendingImport: { token: string; plan: ImportPlan } | null = null
+  const jsonFilter = [{ name: 'HAM accounts', extensions: ['json'] }]
 
   const handlers: Record<InvokeMethod, Handler> = {
     getState: () => ctx.state(),
@@ -112,6 +119,48 @@ export function registerIpc(ctx: IpcContext) {
     'accounts.setPinned': (ids: unknown, pinned: unknown) => accounts.setPinned(strArr(ids), bool(pinned)),
     'accounts.reorder': (ids: unknown) => accounts.reorder(strArr(ids)),
     'accounts.setGroup': (ids: unknown, groupId: unknown) => accounts.setGroup(strArr(ids), typeof groupId === 'string' ? groupId : null),
+    'accounts.exportFile': async (ids: unknown): Promise<ExportResult> => {
+      const file = buildExport({ accounts: accounts.list(), groups: store.groups, tags: store.tags, view: store.view }, Array.isArray(ids) ? strArr(ids) : null)
+      const win = ctx.mainWindow()
+      const options = { defaultPath: join(app.getPath('documents'), exportFileName()), filters: jsonFilter }
+      const picked = await (win ? dialog.showSaveDialog(win, options) : dialog.showSaveDialog(options))
+      if (picked.canceled || !picked.filePath) return { status: 'canceled' }
+      try {
+        await writeFile(picked.filePath, `${JSON.stringify(file, null, 2)}\n`)
+        return { status: 'saved', count: file.accounts.length }
+      } catch (err) {
+        return { status: 'error', message: `Couldn’t save the file: ${(err as Error).message}` }
+      }
+    },
+    'accounts.importFile': async (): Promise<ImportPreview> => {
+      const win = ctx.mainWindow()
+      const options = { properties: ['openFile' as const], filters: jsonFilter }
+      const picked = await (win ? dialog.showOpenDialog(win, options) : dialog.showOpenDialog(options))
+      const path = picked.filePaths[0]
+      if (picked.canceled || !path) return { status: 'canceled' }
+      let text: string
+      try {
+        if ((await stat(path)).size > MAX_EXPORT_BYTES) return { status: 'error', message: 'This file is too big to be a HAM accounts file.' }
+        text = await readFile(path, 'utf8')
+      } catch (err) {
+        return { status: 'error', message: `Couldn’t read the file: ${(err as Error).message}` }
+      }
+      const parsed = parseExport(text)
+      if (!parsed.ok) return { status: 'error', message: parsed.message }
+      const plan = planImport(parsed.file, { accounts: accounts.list(), groups: store.groups, tags: store.tags })
+      pendingImport = { token: randomUUID(), plan }
+      return { status: 'ready', token: pendingImport.token, added: plan.fresh.length, existing: plan.existing.length, hasView: plan.view !== null }
+    },
+    'accounts.importConfirm': (token: unknown, applyView: unknown): ImportResult => {
+      if (!pendingImport || pendingImport.token !== str(token)) return { ok: false, message: 'Open the file again to import it.' }
+      const { plan } = pendingImport
+      pendingImport = null
+      // Accounts added since the file was checked aren't added twice: the queue skips emails it has.
+      const added = accounts.importAccounts(plan)
+      if (bool(applyView) && plan.view) store.view = store.pruneFilter(withDefaults(viewFromImport(plan.view, store.tags, store.view)))
+      ctx.broadcastState()
+      return { ok: true, added }
+    },
     'groups.create': (name: unknown, ids: unknown) => accounts.createGroup(str(name), strArr(ids)),
     'groups.rename': (id: unknown, name: unknown) => accounts.renameGroup(str(id), str(name)),
     'groups.remove': (id: unknown) => accounts.deleteGroup(str(id)),

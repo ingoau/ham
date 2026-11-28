@@ -99,7 +99,10 @@ export function buildMenu(send: (command: MenuCommand) => void, mainWindow: () =
       label: 'File',
       submenu: [
         { label: 'Add Accounts…', accelerator: 'CmdOrCtrl+N', click: run({ type: 'add-account' }) },
-        ...(isMac ? [] : [{ label: 'Settings…', accelerator: 'Ctrl+,', click: run({ type: 'open-settings' }) }]),
+        { type: 'separator' },
+        { label: 'Import Accounts…', click: run({ type: 'import-accounts' }) },
+        { label: 'Export Accounts…', click: run({ type: 'export-accounts' }) },
+        ...(isMac ? [] : [{ type: 'separator' as const }, { label: 'Settings…', accelerator: 'Ctrl+,', click: run({ type: 'open-settings' }) }]),
         { type: 'separator' },
         isMac ? { role: 'close' } : { role: 'quit' }
       ]

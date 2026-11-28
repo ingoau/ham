@@ -3,6 +3,7 @@
 // slack-sessions.ts, and groups, tags and pins through organizer.ts; this
 // service ties them together and reads and saves profiles.
 import type { Account, AccountGroup, AccountTag, CodeResult, ProfileInput, RefreshResult, SaveResult, SlackFieldDef, SlackInfo, SlackProfile, SlackSaveResult, SlackSignInResult, TagColor } from '@shared/types'
+import type { ImportPlan } from './account-export'
 import type { AuthBackend, BackendFactory, SlackOutcome } from './auth/backend'
 import { AccountRecords, noSlack, toPublic, type Toast } from './account-records'
 import { Organizer } from './organizer'
@@ -355,6 +356,18 @@ export class AccountService {
 
   reorderTags(ids: string[]) {
     this.organizer.reorderTags(ids)
+  }
+
+  /** Add an import's new accounts (they sign in through the queue, like pasted emails) and organise them as the file says. */
+  importAccounts(plan: ImportPlan): number {
+    const { added } = this.queue.add(plan.fresh.map((a) => a.email))
+    const ids = new Set(added)
+    const entries = plan.fresh.flatMap((e) => {
+      const a = this.store.findByEmail(e.email)
+      return a && ids.has(a.id) ? [{ ...e, id: a.id }] : []
+    })
+    this.organizer.applyImport(entries, plan.newGroups, plan.newTags)
+    return added.length
   }
 
   // --- Slack sign-in and sign-out (see slack-sessions.ts) ------------------

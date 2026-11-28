@@ -53,6 +53,7 @@ export function accountMenu({ account, list, many, picked, groups, tags, draggab
       ...(list.some((a) => a.status === 'signed-out') ? [{ id: 'sign-in', label: 'Sign In Again' }] : []),
       ...(slackTargets(list).length ? [{ id: 'slack-sign-in', label: 'Sign In to Slack' }] : []),
       { id: 'copy', label: `Copy ${list.length} Emails` },
+      { id: 'export', label: `Export ${list.length} Accounts…` },
       { type: 'separator' },
       { id: 'deselect', label: 'Deselect All', accelerator: 'CmdOrCtrl+Shift+A' },
       { type: 'separator' },

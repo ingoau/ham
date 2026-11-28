@@ -27,7 +27,10 @@ const api: HamApi = {
     setPinned: (ids, pinned) => call('accounts.setPinned', ids, pinned),
     reorder: (ids) => call('accounts.reorder', ids),
     setGroup: (ids, groupId) => call('accounts.setGroup', ids, groupId),
-    setTag: (ids, tagId, on) => call('accounts.setTag', ids, tagId, on)
+    setTag: (ids, tagId, on) => call('accounts.setTag', ids, tagId, on),
+    exportFile: (ids) => call('accounts.exportFile', ids),
+    importFile: () => call('accounts.importFile'),
+    importConfirm: (token, applyView) => call('accounts.importConfirm', token, applyView)
   },
   tags: {
     create: (name, color, ids) => call('tags.create', name, color, ids),

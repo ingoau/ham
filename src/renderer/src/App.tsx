@@ -31,6 +31,7 @@ import { BulkPanel } from './components/BulkPanel'
 import { CommandPalette, type PaletteAction } from './components/CommandPalette'
 import { DashboardPane } from './components/DashboardPane'
 import { DiscardDialog } from './components/DiscardDialog'
+import type { ImportSummary } from './components/ImportDialog'
 import { LocalNameCard } from './components/LocalNameCard'
 import { PendingPane } from './components/PendingPane'
 import { ProfileForm, type ProfileFormHandle } from './components/ProfileForm'
@@ -473,6 +474,8 @@ export function App() {
         return togglePick(account.id, false)
       case 'deselect':
         return setPicked(new Set())
+      case 'export':
+        return void exportAccounts(list)
       case 'copy':
         await window.ham.copyText(list.map((a) => a.email).join('\n'))
         return void toast.success(list.length > 1 ? `Copied ${list.length} emails` : 'Copied')
@@ -534,6 +537,28 @@ export function App() {
   const onSaved = (result: SaveResult) => {
     if (result.ok) toast.success('Saved to auth.hackclub.com')
     else if (result.reason === 'signed-out') toast.error('Signed out. Sign in again to save.')
+  }
+
+  /** Save every account (or `list`) to a file. */
+  const exportAccounts = async (list: Account[] | null) => {
+    const r = await window.ham.accounts.exportFile(list ? list.map((a) => a.id) : null)
+    if (r.status === 'saved') toast.success(`Exported ${r.count} ${r.count === 1 ? 'account' : 'accounts'}`)
+    else if (r.status === 'error') toast.error(r.message)
+  }
+
+  /** Pick an accounts file; a good one opens the import sheet. */
+  const importAccounts = async () => {
+    const r = await window.ham.accounts.importFile()
+    if (r.status === 'ready') setSheet({ kind: 'import', summary: r })
+    else if (r.status === 'error') toast.error('Couldn’t import', { description: r.message })
+  }
+
+  const confirmImport = async (summary: ImportSummary, applyView: boolean) => {
+    const r = await window.ham.accounts.importConfirm(summary.token, applyView)
+    setSheet(null)
+    if (!r.ok) return void toast.error(r.message)
+    if (r.added > 0) toast(`Adding ${r.added} ${r.added === 1 ? 'account' : 'accounts'}`)
+    else if (applyView) toast.success('View settings applied')
   }
 
   const addEmails = async (emails: string[]) => {
@@ -710,6 +735,10 @@ export function App() {
         return setSheet({ kind: 'tag', tag: null, ids: [...picked] })
       case 'filter':
         return setFilterOpen(true)
+      case 'export':
+        return void exportAccounts(null)
+      case 'import':
+        return void importAccounts()
     }
   }
 
@@ -776,6 +805,12 @@ export function App() {
         break
       case 'sign-out':
         confirmRemove(targets())
+        break
+      case 'export-accounts':
+        void exportAccounts(null)
+        break
+      case 'import-accounts':
+        void importAccounts()
         break
     }
   }
@@ -1022,6 +1057,7 @@ export function App() {
         onAddEmails={(emails) => void addEmails(emails)}
         onCreateGroup={(name, ids) => void createGroup(name, ids)}
         onSaveTag={(tag, ids, name, color) => void saveTag(tag, ids, name, color)}
+        onImport={confirmImport}
       />
       {signOutLatch.value && (
         <SignOutDialog

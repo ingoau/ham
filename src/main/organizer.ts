@@ -2,6 +2,7 @@
 // groups and tags. Nothing here reaches Hack Club or Slack.
 import { randomUUID } from 'node:crypto'
 import { TAG_COLORS, type AccountGroup, type AccountTag, type TagColor } from '@shared/types'
+import type { ExportedAccount } from './account-export'
 import type { Store } from './store'
 
 export class Organizer {
@@ -120,6 +121,40 @@ export class Organizer {
     const byId = new Map(this.store.tags.map((t) => [t.id, t]))
     const listed = ids.map((id) => byId.get(id)).filter((t): t is AccountTag => !!t)
     this.store.tags = [...listed, ...this.store.tags.filter((t) => !ids.includes(t.id))]
+    this.onChange()
+  }
+
+  // --- import --------------------------------------------------------------
+
+  /**
+   * Make the groups and tags an import needs (matching existing ones by name,
+   * ignoring case), then give the imported accounts their local name, group,
+   * tags and pin.
+   */
+  applyImport(entries: (ExportedAccount & { id: string })[], newGroups: string[], newTags: { name: string; color: TagColor }[]) {
+    const key = (s: string) => s.toLowerCase()
+    const haveGroups = new Set(this.store.groups.map((g) => key(g.name)))
+    const groups = newGroups.filter((n) => !haveGroups.has(key(n))).map((name) => ({ id: randomUUID(), name: name.trim().slice(0, 60) }))
+    if (groups.length) this.store.groups = [...this.store.groups, ...groups]
+    const haveTags = new Set(this.store.tags.map((t) => key(t.name)))
+    const tags = newTags
+      .filter((t) => !haveTags.has(key(t.name)))
+      .map((t) => ({ id: randomUUID(), name: t.name.trim().slice(0, 40), color: TAG_COLORS.includes(t.color) ? t.color : ('gray' as const) }))
+    if (tags.length) this.store.tags = [...this.store.tags, ...tags]
+
+    const groupId = new Map(this.store.groups.map((g) => [key(g.name), g.id]))
+    const tagId = new Map(this.store.tags.map((t) => [key(t.name), t.id]))
+    for (const e of entries) {
+      const a = this.store.find(e.id)
+      if (!a) continue
+      this.store.upsert({
+        ...a,
+        localName: e.localName.replace(/\s+/g, ' ').trim().slice(0, 60),
+        groupId: (e.group && groupId.get(key(e.group))) ?? null,
+        tagIds: [...new Set(e.tags.map((t) => tagId.get(key(t))).filter((id): id is string => !!id))],
+        pinned: e.pinned
+      })
+    }
     this.onChange()
   }
 }

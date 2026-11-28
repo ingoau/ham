@@ -223,6 +223,16 @@ export type ContextMenuItem =
   | { id: string; label: string; enabled?: boolean; checked?: boolean; accelerator?: string }
   | { label: string; submenu: ContextMenuItem[] }
 
+export type ExportResult = { status: 'saved'; count: number } | { status: 'canceled' } | { status: 'error'; message: string }
+
+/** A checked import file, waiting for the person to confirm it (by `token`). */
+export type ImportPreview =
+  | { status: 'ready'; token: string; added: number; existing: number; hasView: boolean }
+  | { status: 'canceled' }
+  | { status: 'error'; message: string }
+
+export type ImportResult = { ok: true; added: number } | { ok: false; message: string }
+
 export type CodeResult = { ok: true } | { ok: false; message: string }
 
 export type SaveResult =
@@ -310,6 +320,8 @@ export type MenuCommand =
   | { type: 'new-group' }
   | { type: 'new-tag' }
   | { type: 'filter' }
+  | { type: 'export-accounts' }
+  | { type: 'import-accounts' }
 
 export type HamEvent =
   | { type: 'state'; state: AppState }

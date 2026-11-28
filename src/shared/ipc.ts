@@ -3,9 +3,12 @@ import type {
   Bounds,
   CodeResult,
   ContextMenuItem,
+  ExportResult,
   FindResult,
   HamEvent,
   ImapLinkInput,
+  ImportPreview,
+  ImportResult,
   ProfileInput,
   RefreshResult,
   SaveResult,
@@ -55,6 +58,12 @@ export interface HamApi {
     setGroup(accountIds: string[], groupId: string | null): Promise<void>
     /** Add a tag to accounts (on) or take it off them. */
     setTag(accountIds: string[], tagId: string, on: boolean): Promise<void>
+    /** Save the account list (or only these accounts) to a file the person picks. No sessions or secrets. */
+    exportFile(accountIds: string[] | null): Promise<ExportResult>
+    /** Pick an accounts file and check it; nothing changes until importConfirm. */
+    importFile(): Promise<ImportPreview>
+    /** Add the checked file's new accounts (they sign in through the queue) and, optionally, its view settings. */
+    importConfirm(token: string, applyView: boolean): Promise<ImportResult>
   }
 
   tags: {
@@ -137,6 +146,9 @@ export type InvokeMethod =
   | 'accounts.setPinned'
   | 'accounts.reorder'
   | 'accounts.setGroup'
+  | 'accounts.exportFile'
+  | 'accounts.importFile'
+  | 'accounts.importConfirm'
   | 'groups.create'
   | 'groups.rename'
   | 'groups.remove'

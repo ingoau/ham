@@ -5,6 +5,7 @@ vi.mock('electron', () => ({
   ipcMain: { handle: (channel: string, fn: (...args: unknown[]) => unknown) => electron.handlers.set(channel, fn) },
   app: { getPath: () => '/nonexistent', getVersion: () => '0.0.0' },
   clipboard: { writeText: vi.fn() },
+  dialog: {},
   Menu: {},
   shell: {},
   BrowserWindow: class {},

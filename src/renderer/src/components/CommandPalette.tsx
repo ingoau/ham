@@ -1,11 +1,11 @@
 import { Command, defaultFilter } from 'cmdk'
-import { ClipboardList, FolderPlus, Inbox, ListChecks, ListFilter, Mail, Plus, Settings, Tag } from 'lucide-react'
+import { ClipboardList, Download, FolderPlus, Inbox, ListChecks, ListFilter, Mail, Plus, Settings, Tag, Upload } from 'lucide-react'
 import { useMemo, useState, type ReactNode } from 'react'
 import type { Account, AccountTag } from '@shared/types'
 import { displayName } from '../util'
 import { Avatar } from './Avatar'
 
-export type PaletteAction = 'add' | 'paste' | 'inbox' | 'settings' | 'link-inbox' | 'select-all' | 'new-group' | 'new-tag' | 'filter'
+export type PaletteAction = 'add' | 'paste' | 'inbox' | 'settings' | 'link-inbox' | 'select-all' | 'new-group' | 'new-tag' | 'filter' | 'export' | 'import'
 
 interface Props {
   open: boolean
@@ -27,7 +27,9 @@ const ACTIONS: { id: PaletteAction; label: string; icon: ReactNode; keywords: st
   { id: 'select-all', label: 'Select all accounts', icon: <ListChecks size={16} />, keywords: ['bulk', 'edit', 'selection'], shortcut: 'A' },
   { id: 'new-group', label: 'New group', icon: <FolderPlus size={16} />, keywords: ['folder', 'organise', 'organize', 'section'], shortcut: '⇧N' },
   { id: 'new-tag', label: 'New tag', icon: <Tag size={16} />, keywords: ['label', 'organise', 'organize'], shortcut: '⇧T' },
-  { id: 'filter', label: 'Filter accounts', icon: <ListFilter size={16} />, keywords: ['tags', 'status', 'show', 'hide'], shortcut: '⇧L' }
+  { id: 'filter', label: 'Filter accounts', icon: <ListFilter size={16} />, keywords: ['tags', 'status', 'show', 'hide'], shortcut: '⇧L' },
+  { id: 'export', label: 'Export accounts', icon: <Upload size={16} />, keywords: ['save', 'backup', 'file', 'json', 'move'] },
+  { id: 'import', label: 'Import accounts', icon: <Download size={16} />, keywords: ['open', 'restore', 'file', 'json', 'move'] }
 ]
 
 /** At most this many accounts show at once; typing narrows them down. */

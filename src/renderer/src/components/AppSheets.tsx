@@ -2,6 +2,7 @@ import { TAG_COLORS, type Account, type AccountGroup, type AccountTag, type AppS
 import { displayName } from '../util'
 import { AddAccountsDialog, type AddMode } from './AddAccountsDialog'
 import { GroupNameDialog } from './GroupNameDialog'
+import { ImportDialog, type ImportSummary } from './ImportDialog'
 import { SettingsDialog } from './SettingsDialog'
 import { SlackTokensDialog } from './SlackTokensDialog'
 import { TagDialog } from './TagDialog'
@@ -16,6 +17,7 @@ export type Sheet =
   | { kind: 'local-name'; account: Account }
   | { kind: 'slack-tokens'; account: Account }
   | { kind: 'tag'; tag: AccountTag | null; ids: string[]; fromFilter?: boolean }
+  | { kind: 'import'; summary: ImportSummary }
 
 interface Props {
   /** From useLatched(sheet): the sheet keeps its content while it animates closed. */
@@ -26,9 +28,10 @@ interface Props {
   onAddEmails(emails: string[]): void
   onCreateGroup(name: string, ids: string[]): void
   onSaveTag(tag: AccountTag | null, ids: string[], name: string, color: AccountTag['color']): void
+  onImport(summary: ImportSummary, applyView: boolean): Promise<void>
 }
 
-export function AppSheets({ latch, app, inboxOn, onSheet, onAddEmails, onCreateGroup, onSaveTag }: Props) {
+export function AppSheets({ latch, app, inboxOn, onSheet, onAddEmails, onCreateGroup, onSaveTag, onImport }: Props) {
   const sheet = latch.value
   const close = () => onSheet(null)
   if (!sheet) return null
@@ -92,6 +95,8 @@ export function AppSheets({ latch, app, inboxOn, onSheet, onAddEmails, onCreateG
           }}
         />
       )
+    case 'import':
+      return <ImportDialog key={latch.n} open={latch.open} summary={sheet.summary} onClose={close} onImport={(applyView) => onImport(sheet.summary, applyView)} />
     case 'slack-tokens':
       return <SlackTokensDialog key={latch.n} open={latch.open} account={sheet.account} onClose={close} />
     case 'tag':
