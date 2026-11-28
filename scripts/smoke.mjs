@@ -2,7 +2,7 @@
 //   node scripts/smoke.mjs                 # against the dev build in ./out
 //   node scripts/smoke.mjs path/to/HAM     # against a packaged executable
 import { _electron as electron } from 'playwright-core'
-import { mkdtempSync, rmSync } from 'node:fs'
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -246,6 +246,33 @@ try {
   await page.locator('.filter-bar').getByRole('button', { name: 'Clear filter' }).click()
   await page.locator('.filter-bar').waitFor({ state: 'detached' })
   step('tags several accounts and filters the list by tag')
+
+  // Export and import, with the native file dialogs answered in the main process.
+  const exportPath = join(dir, 'export.json')
+  await app.evaluate(({ dialog }, filePath) => (dialog.showSaveDialog = async () => ({ canceled: false, filePath })), exportPath)
+  await page.locator('.search-button').click()
+  await page.locator('.cmdk-input').fill('export accounts')
+  await page.keyboard.press('Enter')
+  await page.getByText(/^Exported \d+ accounts$/).waitFor({ timeout: 5_000 })
+  const exported = readFileSync(exportPath, 'utf8')
+  const sam = JSON.parse(exported).accounts.find((a) => a.group === 'Clubs')
+  if (!sam || !sam.tags.includes('Alts')) throw new Error('export lost the group or tag')
+  if (/partition|xox|"id"/.test(exported)) throw new Error('export holds internal data')
+  const importPath = join(dir, 'import.json')
+  const file = JSON.parse(exported)
+  file.accounts = [file.accounts[0], { email: 'ida.import@example.com', localName: '', group: 'Imported', tags: ['Alts'], pinned: false }]
+  writeFileSync(importPath, JSON.stringify(file))
+  await app.evaluate(({ dialog }, path) => (dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [path] })), importPath)
+  await page.locator('.search-button').click()
+  await page.locator('.cmdk-input').fill('import accounts')
+  await page.keyboard.press('Enter')
+  await page.getByRole('heading', { name: 'Import accounts' }).waitFor({ timeout: 5_000 })
+  const counts = (await page.locator('.signout-list li').allTextContents()).join()
+  if (counts !== 'New accounts1,Already in HAM1') throw new Error(`import counts: ${counts}`)
+  await page.getByRole('button', { name: 'Add 1 account' }).click()
+  await page.locator('.group-header', { hasText: 'Imported' }).waitFor({ timeout: 5_000 })
+  await page.locator('.account-group', { has: page.locator('.group-header', { hasText: 'Imported' }) }).locator('.account-row .tag-dots').waitFor({ timeout: 5_000 })
+  step('exports the account list and imports new accounts with their group and tags')
   // A local name stays out of the list until a line shows it.
   await row('Sam Rivera').locator('.row-main').click()
   await page.locator('#local-name').fill('Sam main')

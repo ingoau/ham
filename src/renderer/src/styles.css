@@ -699,3 +699,14 @@ textarea {
 .token-value.shown { word-break: break-all; max-height: 7.5em; overflow-y: auto; }
 .token-body .icon-btn { flex: none; margin-top: 2px; }
 .dialog-actions.split { justify-content: space-between; }
+
+/* A render error: shown instead of the app. */
+.app-error { height: 100%; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 48px 24px; text-align: center; }
+.app-error h1 { margin: 0; font-size: 22px; }
+.app-error-message { margin: 0; max-width: 520px; font-size: 14px; line-height: 1.5; color: var(--muted); word-break: break-word; }
+
+/* Long account lists only render the rows on screen. */
+.account-list.virtual { display: block; padding-top: 0; padding-bottom: 0; }
+.virtual-items { position: relative; width: 100%; }
+.virtual-item { position: absolute; top: 0; left: 0; width: 100%; }
+.cmdk-more { padding: 6px 10px 8px; font-size: 12px; color: var(--faint); }

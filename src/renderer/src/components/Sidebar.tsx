@@ -1,4 +1,4 @@
-import { useState, type KeyboardEvent, type MouseEvent } from 'react'
+import { memo, useEffect, useMemo, useRef, useState, type KeyboardEvent, type MouseEvent } from 'react'
 import {
   DndContext,
   PointerSensor,
@@ -10,23 +10,25 @@ import {
 import { restrictToVerticalAxis } from '@dnd-kit/modifiers'
 import { SortableContext, arrayMove, useSortable, verticalListSortingStrategy } from '@dnd-kit/sortable'
 import { CSS } from '@dnd-kit/utilities'
+import { defaultRangeExtractor, useVirtualizer, type Range } from '@tanstack/react-virtual'
 import { Check, ChevronDown, ListFilter, Pin, Plus, Search, Settings, SlidersHorizontal, X } from 'lucide-react'
 import { EMPTY_FILTER, type Account, type AccountFilter, type AccountTag, type ViewSettings } from '@shared/types'
-import { badgeFor, filterCount as countFilters, type GroupModel, type RowModel } from '../view'
+import { useStableCallback } from '../hooks'
+import type { BulkProgress } from '../useBulkJob'
+import { badgeFor, filterCount as countFilters, statusText, type GroupModel, type RowModel } from '../view'
 import { Avatar } from './Avatar'
 import { FilterMenu } from './FilterMenu'
 import { TagDots } from './Tags'
+import { Ticking } from './Ticking'
 import { ViewOptions } from './ViewOptions'
 
 /** A drop into another section: pin it, or move it into a group (null: ungrouped). */
 export type SectionMove = { id: string; pinned: true } | { id: string; pinned: false; groupId: string | null }
 
-export interface BulkProgress {
-  label: string
-  done: number
-  total: number
-  cancelling?: boolean
-}
+export type { BulkProgress }
+
+/** Past this many rows the list only renders what's on screen (and drag reordering is off). */
+export const VIRTUAL_AFTER = 200
 
 interface Props {
   groups: GroupModel[]
@@ -69,6 +71,7 @@ interface Props {
 
 interface RowProps {
   row: RowModel
+  /** Every tag: the row picks its own, so the prop stays the same between renders. */
   tags: AccountTag[]
   draggable: boolean
   showSub: boolean
@@ -81,11 +84,14 @@ interface RowProps {
   onContextMenu(e: MouseEvent, account: Account): void
 }
 
-function AccountRow({ row, tags, draggable, showSub, checked, current, inboxOn, onRowClick, onCheck, onRowKey, onContextMenu }: RowProps) {
+const AccountRow = memo(function AccountRow({ row, tags, draggable, showSub, checked, current, inboxOn, onRowClick, onCheck, onRowKey, onContextMenu }: RowProps) {
   const { account: a, title, sub } = row
   const { setNodeRef, listeners, transform, transition, isDragging } = useSortable({ id: a.id, disabled: !draggable })
   const badge = badgeFor(a, inboxOn)
+  const own = useMemo(() => tags.filter((t) => a.tagIds.includes(t.id)), [tags, a.tagIds])
   const hasSub = !(a.status === 'signed-in' || a.status === 'signed-out') || showSub
+  // Countdowns tick in their own leaf, not through the whole list.
+  const live = a.status === 'waiting' || a.status === 'needs2fa' || a.status === 'queued'
   return (
     <div
       ref={setNodeRef}
@@ -107,29 +113,107 @@ function AccountRow({ row, tags, draggable, showSub, checked, current, inboxOn, 
         <span className="meta">
           <span className="name-line">
             <span className="name">{title}</span>
-            <TagDots tags={tags} />
+            <TagDots tags={own} />
           </span>
-          {hasSub && <span className="email">{sub}</span>}
+          {hasSub && <span className="email">{live ? <Ticking>{(now) => statusText(a, inboxOn, now)}</Ticking> : sub}</span>}
         </span>
         {a.pinned && !badge && <Pin size={12} className="pin-mark" aria-label="Pinned" />}
         {badge && <span className={`badge tone-${badge.tone}`}>{badge.label}</span>}
       </button>
     </div>
   )
+})
+
+/** One line of the list: a section header, an empty section's hint, or an account. */
+type Item =
+  | { kind: 'header'; key: string; group: GroupModel }
+  | { kind: 'empty'; key: string; group: GroupModel }
+  | { kind: 'row'; key: string; group: GroupModel; row: RowModel }
+
+/** The sections as one flat list, the way they show on screen. */
+export function listItems(groups: GroupModel[], dragging: boolean, filtering: boolean): Item[] {
+  const items: Item[] = []
+  for (const g of groups) {
+    // An empty section is only a drop target while dragging (your own groups show unless filtering).
+    if (g.rows.length === 0 && !dragging && (!g.groupId || filtering)) continue
+    if (g.name !== '') items.push({ kind: 'header', key: sectionId(g), group: g })
+    if (!g.open) continue
+    if (g.rows.length === 0 && !dragging) items.push({ kind: 'empty', key: `empty:${sectionId(g)}`, group: g })
+    for (const row of g.rows) items.push({ kind: 'row', key: row.account.id, group: g, row })
+  }
+  return items
 }
 
+const ESTIMATE = { header: 31, empty: 34, row: 56 }
+
 export function Sidebar(props: Props) {
-  const { groups, showSub, order, visible, filtering, draggable, accounts, tags, selectedId, picked, inboxOn, mod, view, progress } = props
-  const tagsOf = (a: Account) => tags.filter((t) => a.tagIds.includes(t.id))
+  const { groups, showSub, order, visible, filtering, accounts, tags, selectedId, picked, inboxOn, mod, view, progress } = props
   const filterCount = countFilters(view.filter, new Set(tags.map((t) => t.id)))
   const picking = picked.size > 0
   const [dragging, setDragging] = useState(false)
   // A small threshold so clicks and right-clicks never start a drag.
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
 
-  const focusRow = (id: string) => document.getElementById(`account-${id}`)?.focus()
+  const allItems = useMemo(() => listItems(groups, dragging, filtering), [groups, dragging, filtering])
+  const rowCount = useMemo(() => allItems.reduce((n, it) => n + (it.kind === 'row' ? 1 : 0), 0), [allItems])
+  const virtual = rowCount > VIRTUAL_AFTER
+  // Nothing drags in a long list, so an empty section has no drop hint there.
+  const items = useMemo(() => (virtual ? allItems.filter((it) => it.kind !== 'empty') : allItems), [allItems, virtual])
+  // dnd-kit can't drag between rows that aren't rendered, so long lists don't drag (Move Up/Down still work).
+  const draggable = props.draggable && !virtual
+  const listRef = useRef<HTMLElement>(null)
+  const indexOf = useMemo(() => new Map(items.map((it, i) => [it.key, i])), [items])
+  const selectedIndex = selectedId ? (indexOf.get(selectedId) ?? -1) : -1
+  const virtualizer = useVirtualizer({
+    enabled: virtual,
+    count: virtual ? items.length : 0,
+    getScrollElement: () => listRef.current,
+    estimateSize: (i) => ESTIMATE[items[i].kind],
+    getItemKey: (i) => items[i].key,
+    // Keep the open account's row rendered so keyboard focus survives scrolling.
+    rangeExtractor: (range: Range) => {
+      const shown = defaultRangeExtractor(range)
+      return selectedIndex >= 0 && selectedIndex < range.count && !shown.includes(selectedIndex) ? [...shown, selectedIndex].sort((a, b) => a - b) : shown
+    },
+    overscan: 10,
+    gap: 2,
+    paddingStart: 4,
+    paddingEnd: 4,
+    initialRect: { width: 0, height: 800 }
+  })
 
-  const onRowKey = (e: KeyboardEvent, id: string) => {
+  // A row that isn't rendered yet gets focus once it is (after scrolling to it).
+  const pendingFocus = useRef<string | null>(null)
+  useEffect(() => {
+    const id = pendingFocus.current
+    if (!id) return
+    const el = document.getElementById(`account-${id}`)
+    if (el) {
+      pendingFocus.current = null
+      el.focus()
+    }
+  })
+
+  // Long lists: bring the open account into view when the selection changes (arrow keys,
+  // the palette, ⌘1…), not when it only moves (a section above collapsing, a re-sort).
+  const scrolledTo = useRef<string | null>(null)
+  useEffect(() => {
+    if (!virtual || selectedIndex < 0 || scrolledTo.current === selectedId) return
+    scrolledTo.current = selectedId
+    virtualizer.scrollToIndex(selectedIndex, { align: 'auto' })
+  }, [virtual, selectedId, selectedIndex, virtualizer])
+
+  const focusRow = (id: string) => {
+    const el = document.getElementById(`account-${id}`)
+    if (el) return el.focus()
+    const i = indexOf.get(id)
+    if (virtual && i !== undefined) {
+      pendingFocus.current = id
+      virtualizer.scrollToIndex(i, { align: 'auto' })
+    }
+  }
+
+  const onRowKey = useStableCallback((e: KeyboardEvent, id: string) => {
     if (e.key === ' ') {
       e.preventDefault()
       props.onTogglePick(id, false)
@@ -144,18 +228,50 @@ export function Sidebar(props: Props) {
     if (e.shiftKey) props.onExtendTo(next)
     else props.onSelect(next)
     focusRow(next)
-  }
+  })
 
-  const onRowClick = (e: MouseEvent, id: string) => {
+  const onRowClick = useStableCallback((e: MouseEvent, id: string) => {
     if (e.metaKey || e.ctrlKey) return props.onTogglePick(id, false)
     if (e.shiftKey) return props.onTogglePick(id, true)
     props.onSelect(id)
-  }
+  })
 
-  const onContextMenu = (e: MouseEvent, account: Account) => {
+  const onCheck = useStableCallback((e: MouseEvent, id: string) => props.onTogglePick(id, e.shiftKey))
+
+  const onContextMenu = useStableCallback((e: MouseEvent, account: Account) => {
     e.preventDefault()
     props.onContextMenu(account)
-  }
+  })
+
+  const renderRow = (r: RowModel) => (
+    <AccountRow
+      key={r.account.id}
+      row={r}
+      tags={tags}
+      draggable={draggable}
+      showSub={showSub}
+      checked={picked.has(r.account.id)}
+      current={r.account.id === selectedId && !picking}
+      inboxOn={inboxOn}
+      onRowClick={onRowClick}
+      onCheck={onCheck}
+      onRowKey={onRowKey}
+      onContextMenu={onContextMenu}
+    />
+  )
+
+  const renderHeader = (g: GroupModel) => (
+    <SectionHeader
+      id={sectionId(g)}
+      droppable={draggable}
+      group={g}
+      onContextMenu={(e) => {
+        e.preventDefault()
+        props.onGroupMenu(g)
+      }}
+      onToggle={() => props.onView({ ...view, collapsed: { ...view.collapsed, [g.key || 'accounts']: g.open } })}
+    />
+  )
 
   const onDragEnd = ({ active, over }: DragEndEvent) => {
     setDragging(false)
@@ -243,58 +359,45 @@ export function Sidebar(props: Props) {
         </div>
       )}
 
-      <nav className={`account-list${picking ? ' picking' : ''}${dragging ? ' is-dragging' : ''}`} aria-label="Accounts">
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          modifiers={[restrictToVerticalAxis]}
-          onDragStart={() => setDragging(true)}
-          onDragCancel={() => setDragging(false)}
-          onDragEnd={onDragEnd}
-        >
-          {groups.map((g) => {
-            // An empty section is only a drop target while dragging (your own groups show unless filtering).
-            if (g.rows.length === 0 && !dragging && (!g.groupId || filtering)) return null
-            const ids = g.rows.map((r) => r.account.id)
-            return (
-              <div key={g.key || 'all'} role="group" aria-label={g.name || undefined} className="account-group">
-                {g.name !== '' && (
-                  <SectionHeader
-                    id={sectionId(g)}
-                    droppable={draggable}
-                    group={g}
-                    onContextMenu={(e) => {
-                      e.preventDefault()
-                      props.onGroupMenu(g)
-                    }}
-                    onToggle={() => props.onView({ ...view, collapsed: { ...view.collapsed, [g.key || 'accounts']: g.open } })}
-                  />
-                )}
-                {g.open && g.rows.length === 0 && !dragging && <p className="group-empty">Drag accounts here</p>}
-                {g.open && (
-                  <SortableContext items={ids} strategy={verticalListSortingStrategy} disabled={!draggable}>
-                    {g.rows.map((r) => (
-                      <AccountRow
-                        key={r.account.id}
-                        row={r}
-                        tags={tagsOf(r.account)}
-                        draggable={draggable}
-                        showSub={showSub}
-                        checked={picked.has(r.account.id)}
-                        current={r.account.id === selectedId && !picking}
-                        inboxOn={inboxOn}
-                        onRowClick={onRowClick}
-                        onCheck={(e, id) => props.onTogglePick(id, e.shiftKey)}
-                        onRowKey={onRowKey}
-                        onContextMenu={onContextMenu}
-                      />
-                    ))}
-                  </SortableContext>
-                )}
-              </div>
-            )
-          })}
-        </DndContext>
+      <nav ref={listRef} className={`account-list${picking ? ' picking' : ''}${dragging ? ' is-dragging' : ''}${virtual ? ' virtual' : ''}`} aria-label="Accounts">
+        {virtual ? (
+          <div className="virtual-items" style={{ height: virtualizer.getTotalSize() }}>
+            {virtualizer.getVirtualItems().map((v) => {
+              const it = items[v.index]
+              return (
+                <div key={v.key} data-index={v.index} ref={virtualizer.measureElement} className="virtual-item" style={{ transform: `translateY(${v.start}px)` }}>
+                  {it.kind === 'header' ? renderHeader(it.group) : it.kind === 'row' ? renderRow(it.row) : null}
+                </div>
+              )
+            })}
+          </div>
+        ) : (
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            modifiers={[restrictToVerticalAxis]}
+            onDragStart={() => setDragging(true)}
+            onDragCancel={() => setDragging(false)}
+            onDragEnd={onDragEnd}
+          >
+            {groups.map((g) => {
+              // An empty section is only a drop target while dragging (your own groups show unless filtering).
+              if (g.rows.length === 0 && !dragging && (!g.groupId || filtering)) return null
+              const ids = g.rows.map((r) => r.account.id)
+              return (
+                <div key={g.key || 'all'} role="group" aria-label={g.name || undefined} className="account-group">
+                  {g.name !== '' && renderHeader(g)}
+                  {g.open && g.rows.length === 0 && !dragging && <p className="group-empty">Drag accounts here</p>}
+                  {g.open && (
+                    <SortableContext items={ids} strategy={verticalListSortingStrategy} disabled={!draggable}>
+                      {g.rows.map(renderRow)}
+                    </SortableContext>
+                  )}
+                </div>
+              )
+            })}
+          </DndContext>
+        )}
         {filtering && visible.length === 0 && <p className="list-empty">No accounts match this filter.</p>}
       </nav>
 

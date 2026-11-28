@@ -52,18 +52,43 @@ export class AuthClient implements AuthBackend {
   // --- sign-in ------------------------------------------------------------
 
   async startLogin(email: string): Promise<StartOutcome> {
-    return guard(async () => {
-      this.attemptPathValue = null
-      const page = await this.get('/login')
-      if (page.status === RATE_LIMITED) return { kind: 'rate-limited' }
-      if (!this.csrf) return { kind: 'unexpected', message: "Couldn't load the Hack Club sign-in page." }
+    let sent = false
+    return guard(
+      async () => {
+        this.attemptPathValue = null
+        const page = await this.get('/login')
+        if (page.status === RATE_LIMITED) return { kind: 'rate-limited' }
+        if (!this.csrf) return { kind: 'unexpected', message: "Couldn't load the Hack Club sign-in page." }
 
-      const res = await this.post('/login', {
-        email: email.trim().toLowerCase(),
-        timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
-      })
-      return this.afterLoginStart(res)
-    }, startError)
+        sent = true
+        const res = await this.post('/login', {
+          email: email.trim().toLowerCase(),
+          timezone: Intl.DateTimeFormat().resolvedOptions().timeZone
+        })
+        return this.afterLoginStart(res)
+      },
+      startError,
+      (message) => ({ kind: 'network', message, sent })
+    )
+  }
+
+  /** Load a code form for its CSRF token. If that fails, the next submit loads it first. */
+  private async loadForm(path: string) {
+    try {
+      await this.get(path)
+    } catch (err) {
+      if (!(err instanceof NetworkError)) throw err
+      this.csrf = null
+    }
+  }
+
+  /** The flash error on /login, if it can be read. */
+  private async loginError(fallback: string): Promise<string> {
+    try {
+      return this.firstError(await this.get('/login'), fallback)
+    } catch {
+      return fallback
+    }
   }
 
   private async afterLoginStart(res: RawResponse): Promise<StartOutcome> {
@@ -77,7 +102,7 @@ export class AuthClient implements AuthBackend {
         return { kind: 'no-account' }
       case 'attempt':
         this.attemptPathValue = next.attemptPath
-        await this.get(next.attemptPath) // the code page carries the CSRF token for /verify
+        await this.loadForm(next.attemptPath) // the code page carries the CSRF token for /verify
         return { kind: 'code' }
       case 'webauthn': {
         // Passkey accounts are sent to WebAuthn first. HAM never uses passkeys:
@@ -86,13 +111,12 @@ export class AuthClient implements AuthBackend {
         await this.get(`${next.attemptPath}/webauthn`)
         const skipped = await this.post(`${next.attemptPath}/webauthn/skip`, {})
         if (skipped.status === RATE_LIMITED) return { kind: 'rate-limited' }
-        await this.get(next.attemptPath)
+        await this.loadForm(next.attemptPath)
         return { kind: 'code' }
       }
       case 'login': {
         // Errors such as a locked account come back as a flash on /login.
-        const page = await this.get('/login')
-        return { kind: 'locked', message: this.firstError(page, "Hack Club couldn't start a sign-in for this email.") }
+        return { kind: 'locked', message: await this.loginError("Hack Club couldn't start a sign-in for this email.") }
       }
       default:
         return { kind: 'unexpected', message: `Unexpected redirect to ${res.location}.` }
@@ -100,32 +124,51 @@ export class AuthClient implements AuthBackend {
   }
 
   async resend(): Promise<StartOutcome> {
-    return guard(async () => {
-      if (!this.attemptPathValue) return { kind: 'unexpected', message: 'This sign-in has expired. Start again.' }
-      const res = await this.post(`${this.attemptPathValue}/resend`, {})
-      if (res.status === RATE_LIMITED) return { kind: 'rate-limited' }
-      await this.get(this.attemptPathValue)
-      return { kind: 'code' }
-    }, startError)
+    let sent = false
+    return guard(
+      async () => {
+        if (!this.attemptPathValue) return { kind: 'unexpected', message: 'This sign-in has expired. Start again.' }
+        sent = true
+        const res = await this.post(`${this.attemptPathValue}/resend`, {})
+        if (res.status === RATE_LIMITED) return { kind: 'rate-limited' }
+        await this.loadForm(this.attemptPathValue)
+        return { kind: 'code' }
+      },
+      startError,
+      (message) => ({ kind: 'network', message, sent })
+    )
   }
 
   async verifyEmailCode(code: string): Promise<VerifyOutcome> {
-    return guard(async () => {
-      if (!this.attemptPathValue) return expired()
-      const res = await this.post(`${this.attemptPathValue}/verify`, { code: normalizeCode(code) })
-      return this.afterVerify(res)
-    }, verifyError)
+    let sent = false
+    return guard(
+      async () => {
+        if (!this.attemptPathValue) return expired()
+        if (!this.csrf) await this.get(this.attemptPathValue)
+        sent = true
+        const res = await this.post(`${this.attemptPathValue}/verify`, { code: normalizeCode(code) })
+        return this.afterVerify(res)
+      },
+      verifyError,
+      (message) => ({ kind: 'network', message, sent })
+    )
   }
 
   async verifySecondFactor(kind: 'totp' | 'backup', code: string): Promise<VerifyOutcome> {
-    return guard(async () => {
-      if (!this.attemptPathValue) return expired()
-      const path = kind === 'totp' ? `${this.attemptPathValue}/totp` : `${this.attemptPathValue}/backup_code`
-      if (!this.csrf) await this.get(path)
-      const value = kind === 'totp' ? normalizeCode(code) : normalizeBackupCode(code)
-      const res = await this.post(path, { code: value })
-      return this.afterVerify(res)
-    }, verifyError)
+    let sent = false
+    return guard(
+      async () => {
+        if (!this.attemptPathValue) return expired()
+        const path = kind === 'totp' ? `${this.attemptPathValue}/totp` : `${this.attemptPathValue}/backup_code`
+        if (!this.csrf) await this.get(path)
+        const value = kind === 'totp' ? normalizeCode(code) : normalizeBackupCode(code)
+        sent = true
+        const res = await this.post(path, { code: value })
+        return this.afterVerify(res)
+      },
+      verifyError,
+      (message) => ({ kind: 'network', message, sent })
+    )
   }
 
   private async afterVerify(res: RawResponse): Promise<VerifyOutcome> {
@@ -138,24 +181,23 @@ export class AuthClient implements AuthBackend {
     switch (next.kind) {
       case 'done':
         return { kind: 'done' }
+      // The code was accepted: past here, a failed page load mustn't lose that.
       case 'totp':
-        await this.get(`${next.attemptPath}/totp`)
+        await this.loadForm(`${next.attemptPath}/totp`)
         return { kind: 'totp' }
       case 'backup':
-        await this.get(`${next.attemptPath}/backup_code`)
+        await this.loadForm(`${next.attemptPath}/backup_code`)
         return { kind: 'backup' }
       case 'webauthn':
         // The server asks for a passkey as the second factor. A backup code
         // may still work, so prepare that form in case the user has one.
-        await this.get(`${next.attemptPath}/backup_code`)
+        await this.loadForm(`${next.attemptPath}/backup_code`)
         return { kind: 'passkey-only' }
       case 'attempt':
-        await this.get(next.attemptPath)
+        await this.loadForm(next.attemptPath)
         return { kind: 'invalid', message: 'Invalid or expired code, please try again' }
-      case 'login': {
-        const page = await this.get('/login')
-        return { kind: 'unexpected', message: this.firstError(page, 'This sign-in has expired. Start again.') }
-      }
+      case 'login':
+        return { kind: 'unexpected', message: await this.loginError('This sign-in has expired. Start again.') }
       default:
         return { kind: 'unexpected', message: `Unexpected redirect to ${res.location}.` }
     }
@@ -325,11 +367,11 @@ async function slackGuard(fn: () => Promise<SlackRead>): Promise<SlackOutcome> {
 const startError = (message: string): StartOutcome => ({ kind: 'unexpected', message })
 const verifyError = (message: string): VerifyOutcome => ({ kind: 'unexpected', message })
 
-async function guard<T>(fn: () => Promise<T>, onError: (message: string) => T): Promise<T> {
+async function guard<T>(fn: () => Promise<T>, onError: (message: string) => T, onNetwork: (message: string) => T = onError): Promise<T> {
   try {
     return await fn()
   } catch (err) {
-    if (err instanceof NetworkError) return onError(err.message)
+    if (err instanceof NetworkError) return onNetwork(err.message)
     return onError(err instanceof Error ? err.message : String(err))
   }
 }

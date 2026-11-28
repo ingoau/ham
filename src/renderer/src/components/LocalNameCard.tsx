@@ -17,15 +17,11 @@ export function LocalNameCard({ account }: { account: Account }) {
     <section className="card" aria-labelledby="local-heading">
       <div>
         <h2 id="local-heading">Local name</h2>
-        <p className="lead" id="local-lead">
-          Only kept in HAM, never sent to Hack Club. The list shows it ahead of Slack and Hack Club names.
-        </p>
       </div>
       <div className="field">
         <input
           id="local-name"
           aria-labelledby="local-heading"
-          aria-describedby="local-lead"
           value={value}
           maxLength={60}
           placeholder={displayName(account)}

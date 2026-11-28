@@ -30,6 +30,12 @@ export class SlidingWindow {
     return true
   }
 
+  /** Give back a slot taken at `at`, for a request that never reached the server. */
+  refund(at: number) {
+    const i = this.log.lastIndexOf(at)
+    if (i !== -1) this.log.splice(i, 1)
+  }
+
   /**
    * When the k-th request from now (0 = the next one) can go out, assuming
    * nothing else uses a slot meanwhile.

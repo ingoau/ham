@@ -131,6 +131,9 @@ export type Theme = 'system' | 'light' | 'dark'
 export type LineKind = 'best' | 'local' | 'hca' | 'sfull' | 'sdisplay' | 'email' | 'tpl' | 'none'
 export type SortBy = 'manual' | 'line1' | 'hca' | 'sdisplay' | 'email' | 'added' | 'status'
 export type GroupBy = 'none' | 'status' | 'domain' | 'slack' | 'tpl'
+export const LINE_KINDS: readonly LineKind[] = ['best', 'local', 'hca', 'sfull', 'sdisplay', 'email', 'tpl', 'none']
+export const SORT_BYS: readonly SortBy[] = ['manual', 'line1', 'hca', 'sdisplay', 'email', 'added', 'status']
+export const GROUP_BYS: readonly GroupBy[] = ['none', 'status', 'domain', 'slack', 'tpl']
 
 export interface ViewSettings {
   sortBy: SortBy
@@ -149,6 +152,7 @@ export interface ViewSettings {
 
 /** Status buckets for the sidebar filter. */
 export type StatusFilter = 'signed-in' | 'signed-out' | 'attention' | 'adding'
+export const STATUS_FILTERS: readonly StatusFilter[] = ['signed-in', 'signed-out', 'attention', 'adding']
 
 /** Stands in for "accounts without tags" in AccountFilter.tags. */
 export const NO_TAGS = 'none'
@@ -222,6 +226,16 @@ export type ContextMenuItem =
   | { type: 'separator' }
   | { id: string; label: string; enabled?: boolean; checked?: boolean; accelerator?: string }
   | { label: string; submenu: ContextMenuItem[] }
+
+export type ExportResult = { status: 'saved'; count: number } | { status: 'canceled' } | { status: 'error'; message: string }
+
+/** A checked import file, waiting for the person to confirm it (by `token`). */
+export type ImportPreview =
+  | { status: 'ready'; token: string; added: number; existing: number; hasView: boolean }
+  | { status: 'canceled' }
+  | { status: 'error'; message: string }
+
+export type ImportResult = { ok: true; added: number } | { ok: false; message: string }
 
 export type CodeResult = { ok: true } | { ok: false; message: string }
 
@@ -310,6 +324,8 @@ export type MenuCommand =
   | { type: 'new-group' }
   | { type: 'new-tag' }
   | { type: 'filter' }
+  | { type: 'export-accounts' }
+  | { type: 'import-accounts' }
 
 export type HamEvent =
   | { type: 'state'; state: AppState }

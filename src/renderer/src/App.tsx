@@ -1,18 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import * as AlertDialog from '@radix-ui/react-alert-dialog'
 import * as Tabs from '@radix-ui/react-tabs'
 import { KeyRound, Lock, MessageSquare, Plus, RotateCw, Tag, UserPlus } from 'lucide-react'
 import { Toaster, toast } from 'sonner'
 import { FIXED_FIELDS, fieldValue, isSlackField, slackCustomFields, type FieldDef } from '@shared/fields'
 import {
   isPending,
-  TAG_COLORS,
   type Account,
   type AccountFilter,
   type AccountGroup,
   type AccountTag,
   type AppState,
-  type ContextMenuItem,
   type DashboardNotice,
   type DashboardState,
   type MenuCommand,
@@ -21,39 +18,36 @@ import {
   type ViewSettings
 } from '@shared/types'
 import { contextFor, setTemplateFields, type BulkPlan } from './bulk'
+import { useStableCallback } from './hooks'
+import { useLatched } from './latch'
+import { accountMenu, chipMenu, choiceFor, groupItems, onSlack, sectionMenu, slackTargets, swapped, tagItems, tagMenu } from './menus'
 import { useTemplates } from './templates'
+import { useBulkJob } from './useBulkJob'
 import { displayName, formatDate } from './util'
 import { buildView, type GroupModel, type TemplateValues } from './view'
-import { AddAccountsDialog, type AddMode } from './components/AddAccountsDialog'
+import { AppSheets, type Sheet } from './components/AppSheets'
 import { Avatar } from './components/Avatar'
 import { BulkPanel } from './components/BulkPanel'
-import { GroupNameDialog } from './components/GroupNameDialog'
-import { LocalNameCard } from './components/LocalNameCard'
-import { useLatched } from './latch'
 import { CommandPalette, type PaletteAction } from './components/CommandPalette'
 import { DashboardPane } from './components/DashboardPane'
+import { DiscardDialog } from './components/DiscardDialog'
+import type { ImportSummary } from './components/ImportDialog'
+import { LocalNameCard } from './components/LocalNameCard'
 import { PendingPane } from './components/PendingPane'
 import { ProfileForm, type ProfileFormHandle } from './components/ProfileForm'
 import { SessionCard } from './components/SessionCard'
+import { SlackBulkDialog, SlackLaunchDialog } from './components/SlackDialogs'
 import { SlackProfileCard, type SlackProfileHandle } from './components/SlackProfileCard'
-import { SlackTokensDialog } from './components/SlackTokensDialog'
 import { setSlackCompletions } from './components/TemplateInput'
-import { SettingsDialog } from './components/SettingsDialog'
-import { Sidebar, type BulkProgress, type SectionMove } from './components/Sidebar'
+import { Sidebar, type SectionMove } from './components/Sidebar'
 import { SignOutDialog } from './components/SignOutDialog'
-import { TagDialog } from './components/TagDialog'
 import { TagDot } from './components/Tags'
 
 type Tab = 'profile' | 'web'
-type Sheet =
-  | null
-  | { kind: 'add'; mode: AddMode }
-  | { kind: 'settings' }
-  | { kind: 'new-group'; ids: string[] }
-  | { kind: 'rename-group'; group: AccountGroup }
-  | { kind: 'local-name'; account: Account }
-  | { kind: 'slack-tokens'; account: Account }
-  | { kind: 'tag'; tag: AccountTag | null; ids: string[]; fromFilter?: boolean }
+
+const NO_ACCOUNTS: Account[] = []
+const NO_GROUPS: AccountGroup[] = []
+const NO_TAGS: AccountTag[] = []
 
 const remembered = {
   get: (key: string) => {
@@ -73,19 +67,20 @@ const remembered = {
   }
 }
 
-/** Accounts a Slack sign-in would do something for: signed in to Hack Club, not to Slack. */
-const slackTargets = (list: Account[]) => list.filter((a) => a.status === 'signed-in' && !a.slack.session)
+const isEditable = (el: Element | null) =>
+  !!el && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || (el as HTMLElement).isContentEditable)
+
+const busyToast = () => void toast('Wait for the current update to finish')
 
 /** Render the list's template lines and template groups, by account id. */
-
 function useViewTemplates(accounts: Account[], view: ViewSettings | undefined, custom: FieldDef[]): TemplateValues {
   const plan = useMemo(() => {
-    const kinds: (keyof TemplateValues)[] = []
-    const tpls: string[] = []
-    if (view?.line1 === 'tpl') kinds.push('line1'), tpls.push(view.line1Tpl)
-    if (view?.line2 === 'tpl') kinds.push('line2'), tpls.push(view.line2Tpl)
-    if (view?.groupBy === 'tpl') kinds.push('group'), tpls.push(view.groupTpl)
-    const jobs = kinds.flatMap((_, k) => accounts.map((a, i) => ({ tpl: tpls[k], ctx: contextFor(a, i + 1, accounts.length, '', custom) })))
+    const parts: [keyof TemplateValues, string][] = []
+    if (view?.line1 === 'tpl') parts.push(['line1', view.line1Tpl])
+    if (view?.line2 === 'tpl') parts.push(['line2', view.line2Tpl])
+    if (view?.groupBy === 'tpl') parts.push(['group', view.groupTpl])
+    const kinds = parts.map(([kind]) => kind)
+    const jobs = parts.flatMap(([, tpl]) => accounts.map((a, i) => ({ tpl, ctx: contextFor(a, i + 1, accounts.length, '', custom) })))
     return { kinds, jobs }
   }, [accounts, view, custom])
   const results = useTemplates(plan.jobs)
@@ -110,11 +105,14 @@ export function App() {
   const [confirmSignOut, setConfirmSignOut] = useState<Account[] | null>(null)
   const [slackConfirm, setSlackConfirm] = useState<Account | null>(null)
   const [slackBulkConfirm, setSlackBulkConfirm] = useState<Account[] | null>(null)
+  // What to do once unsaved profile edits are discarded.
+  const [discard, setDiscard] = useState<{ run(): void } | null>(null)
   // Dialogs keep their content while they animate closed.
   const sheetLatch = useLatched(sheet)
   const signOutLatch = useLatched(confirmSignOut)
   const slackLatch = useLatched(slackConfirm)
   const slackBulkLatch = useLatched(slackBulkConfirm)
+  const discardLatch = useLatched(discard)
   const [paletteOpen, setPaletteOpen] = useState(false)
   const [filterOpen, setFilterOpen] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
@@ -122,13 +120,10 @@ export function App() {
   const [notice, setNotice] = useState<DashboardNotice | null>(null)
   const [picked, setPicked] = useState<Set<string>>(new Set())
   const [anchor, setAnchor] = useState<string | null>(null)
-  const [progress, setProgress] = useState<BulkProgress | null>(null)
-  const [now, setNow] = useState(Date.now())
   const formRef = useRef<ProfileFormHandle>(null)
   const slackRef = useRef<SlackProfileHandle>(null)
-  const cancelBulk = useRef(false)
   // Only one background job (bulk edit, undo, bulk sign-out or Slack sign-in) at a time; they share the progress card.
-  const bulkRunning = useRef(false)
+  const bulk = useBulkJob()
   const menuRef = useRef<(c: MenuCommand) => void>(() => {})
 
   useEffect(() => {
@@ -149,16 +144,10 @@ export function App() {
     })
   }, [])
 
-  const accounts = app?.accounts ?? []
+  const accounts = app?.accounts ?? NO_ACCOUNTS
+  const groups = app?.groups ?? NO_GROUPS
+  const tags = app?.tags ?? NO_TAGS
   const inboxOn = app?.inbox.state === 'connected'
-  const anyPending = accounts.some((a) => isPending(a.status))
-
-  // Countdowns tick while anything is being added.
-  useEffect(() => {
-    if (!anyPending) return
-    const t = setInterval(() => setNow(Date.now()), 1000)
-    return () => clearInterval(t)
-  }, [anyPending])
 
   // Slack's own profile fields come from Slack, so the field list follows the app state.
   // Every state update brings a fresh copy: key on the content so forms only reset when it changes.
@@ -171,12 +160,13 @@ export function App() {
   }, [customFields])
 
   const tv = useViewTemplates(accounts, app?.view, customFields)
+  // Countdowns tick in their own leaf components (Ticking), so the view is only rebuilt when the data changes.
   const viewModel = useMemo(
     () =>
       app
-        ? buildView(accounts, app.view, tv, inboxOn, now, app.groups, new Set(app.tags.map((t) => t.id)))
+        ? buildView(accounts, app.view, tv, inboxOn, Date.now(), app.groups, new Set(app.tags.map((t) => t.id)))
         : { groups: [], order: [], visible: [], total: 0, filtering: false, showSub: true, draggable: false },
-    [app, accounts, tv, inboxOn, now]
+    [app, accounts, tv, inboxOn]
   )
 
   const selected = accounts.find((a) => a.id === selectedId) ?? accounts.find((a) => a.id === viewModel.order[0]) ?? accounts[0] ?? null
@@ -190,24 +180,42 @@ export function App() {
     if ([...picked].some((id) => !shown.has(id))) setPicked(new Set([...picked].filter((id) => shown.has(id))))
   }, [viewModel.visible, picked])
 
-  const select = (id: string) => {
-    setSelectedId(id)
-    setNotice(null)
-    setTab('profile')
-    // Like Finder: a plain click on a row replaces the selection.
-    setPicked(new Set())
-    setAnchor(id)
+  /** Run something that takes the profile form away (another account, the selection, the web tab), asking first if it has unsaved edits. */
+  const leaveProfile = (fn: () => void) => {
+    if (formRef.current?.isDirty() || slackRef.current?.isDirty()) setDiscard({ run: fn })
+    else fn()
   }
+
+  /** Change the selection; going from none to some replaces the profile form with the bulk pane. */
+  const changePicked = (fn: () => void) => (picked.size === 0 ? leaveProfile(fn) : fn())
+
+  /** Open an account (on a tab). */
+  const select = (id: string, to: Tab = 'profile') => {
+    const run = () => {
+      setSelectedId(id)
+      setNotice(null)
+      setTab(to)
+      // Like Finder: a plain click on a row replaces the selection.
+      setPicked(new Set())
+      setAnchor(id)
+    }
+    if (id === selected?.id && to === 'profile') run()
+    else leaveProfile(run)
+  }
+
+  const switchTab = (to: Tab) => (to === 'web' ? leaveProfile(() => setTab('web')) : setTab(to))
 
   /** Shift+arrow: select the range from the anchor to this account. */
   const extendTo = (id: string) => {
     const order = viewModel.order
-    const base = anchor && order.includes(anchor) ? anchor : selected?.id ?? id
+    const base = anchor && order.includes(anchor) ? anchor : (selected?.id ?? id)
     const a = order.indexOf(base)
     const b = order.indexOf(id)
     if (a === -1 || b === -1) return
-    setPicked(new Set(order.slice(Math.min(a, b), Math.max(a, b) + 1)))
-    setAnchor(base)
+    changePicked(() => {
+      setPicked(new Set(order.slice(Math.min(a, b), Math.max(a, b) + 1)))
+      setAnchor(base)
+    })
   }
 
   /** Accounts an action applies to: the selection, or the open account. */
@@ -248,14 +256,22 @@ export function App() {
     const i = ids.indexOf(id)
     const j = direction === 'up' ? i - 1 : i + 1
     if (j < 0 || j >= ids.length) return
-    ;[ids[i], ids[j]] = [ids[j], ids[i]]
+    const next = swapped(ids, i, direction)
     reorder(
-      viewModel.groups.flatMap((g) => (g === section ? ids : g.rows.map((r) => r.account.id))),
+      viewModel.groups.flatMap((g) => (g === section ? next : g.rows.map((r) => r.account.id))),
       null
     )
   }
 
-  const groups = app?.groups ?? []
+  const setView = useCallback((view: ViewSettings) => {
+    setApp((s) => (s ? { ...s, view } : s))
+    void window.ham.settings.setView(view)
+  }, [])
+
+  /** Your groups show when grouping is set to "My groups". */
+  const showGroups = () => {
+    if (app && app.view.groupBy !== 'none') setView({ ...app.view, groupBy: 'none' })
+  }
 
   /** Move accounts into a group (null: out of their group). Shows the group if it's collapsed or hidden. */
   const moveToGroup = (list: Account[], groupId: string | null) => {
@@ -263,11 +279,6 @@ export function App() {
     setApp((s) => (s ? { ...s, accounts: s.accounts.map((a) => (ids.has(a.id) ? { ...a, groupId, pinned: false } : a)) } : s))
     void window.ham.accounts.setGroup([...ids], groupId)
     showGroups()
-  }
-
-  /** Your groups show when grouping is set to "My groups". */
-  const showGroups = () => {
-    if (app && app.view.groupBy !== 'none') setView({ ...app.view, groupBy: 'none' })
   }
 
   const createGroup = async (name: string, ids: string[]) => {
@@ -294,24 +305,16 @@ export function App() {
     })
   }
 
-  /** The "Move to Group" items shared by account menus and the bulk pane. */
-  const groupItems = (list: Account[]): ContextMenuItem[] => [
-    ...groups.map((g) => ({ id: `group:${g.id}`, label: g.name, checked: list.every((a) => a.groupId === g.id) })),
-    ...(groups.length ? [{ type: 'separator' as const }] : []),
-    { id: 'group:new', label: 'New Group…' },
-    ...(list.some((a) => a.groupId) ? [{ id: 'group:none', label: 'Remove from Group' }] : [])
-  ]
-
   const handleGroupChoice = (choice: string | null, list: Account[]): boolean => {
-    if (!choice?.startsWith('group:')) return false
-    const target = choice.slice('group:'.length)
+    const target = choiceFor(choice, 'group')
+    if (target === null) return false
     if (target === 'new') setSheet({ kind: 'new-group', ids: list.map((a) => a.id) })
     else moveToGroup(list, target === 'none' ? null : target)
     return true
   }
 
   const showGroupPicker = async (list: Account[]) => {
-    handleGroupChoice(await window.ham.ui.contextMenu(groupItems(list)), list)
+    handleGroupChoice(await window.ham.ui.contextMenu(groupItems(groups, list)), list)
   }
 
   /** Right-click on a section header. */
@@ -319,42 +322,21 @@ export function App() {
     const members = section.rows.map((r) => r.account)
     const own = section.groupId ? groups.find((g) => g.id === section.groupId) : undefined
     const at = own ? groups.indexOf(own) : -1
-    const items: ContextMenuItem[] = [
-      { id: 'toggle', label: section.open ? 'Collapse' : 'Expand' },
-      { id: 'select', label: 'Select Accounts in Group', enabled: members.length > 0 },
-      ...(slackTargets(members).length ? [{ id: 'slack-sign-in', label: 'Sign In to Slack' }] : []),
-      ...(own
-        ? [
-            { type: 'separator' as const },
-            { id: 'rename', label: 'Rename…' },
-            { id: 'up', label: 'Move Up', enabled: at > 0 },
-            { id: 'down', label: 'Move Down', enabled: at < groups.length - 1 },
-            { type: 'separator' as const },
-            { id: 'delete', label: 'Delete Group' }
-          ]
-        : []),
-      { type: 'separator' },
-      { id: 'new', label: 'New Group…' }
-    ]
-    const choice = await window.ham.ui.contextMenu(items)
+    const choice = await window.ham.ui.contextMenu(sectionMenu(section, groups, own))
     if (!app) return
     switch (choice) {
       case 'toggle':
         return setView({ ...app.view, collapsed: { ...app.view.collapsed, [section.key || 'accounts']: section.open } })
       case 'select':
-        return setPicked(new Set(members.map((a) => a.id)))
+        return changePicked(() => setPicked(new Set(members.map((a) => a.id))))
       case 'slack-sign-in':
         return askSignInSlack(members)
       case 'rename':
         return own && setSheet({ kind: 'rename-group', group: own })
       case 'up':
-      case 'down': {
+      case 'down':
         if (!own) return
-        const ids = groups.map((g) => g.id)
-        const j = choice === 'up' ? at - 1 : at + 1
-        ;[ids[at], ids[j]] = [ids[j], ids[at]]
-        return void window.ham.groups.reorder(ids)
-      }
+        return void window.ham.groups.reorder(swapped(groups.map((g) => g.id), at, choice))
       case 'delete':
         return own && deleteGroup(own)
       case 'new':
@@ -362,7 +344,6 @@ export function App() {
     }
   }
 
-  const tags = app?.tags ?? []
   const tagsOf = (a: Account) => tags.filter((t) => a.tagIds.includes(t.id))
 
   /** Add a tag to accounts (on) or take it off. */
@@ -381,24 +362,17 @@ export function App() {
     void window.ham.accounts.setTag([...ids], tagId, on)
   }
 
-  /** The tag checklist shared by account menus, the bulk pane and the detail header. */
-  const tagItems = (list: Account[]): ContextMenuItem[] => [
-    ...tags.map((t) => ({ id: `tag:${t.id}`, label: t.name, checked: list.length > 0 && list.every((a) => a.tagIds.includes(t.id)) })),
-    ...(tags.length ? [{ type: 'separator' as const }] : []),
-    { id: 'tag:new', label: 'New Tag…' }
-  ]
-
   /** A tag ticked on every account comes off them all; otherwise it goes on every one. */
   const handleTagChoice = (choice: string | null, list: Account[]): boolean => {
-    if (!choice?.startsWith('tag:')) return false
-    const id = choice.slice('tag:'.length)
+    const id = choiceFor(choice, 'tag')
+    if (id === null) return false
     if (id === 'new') setSheet({ kind: 'tag', tag: null, ids: list.map((a) => a.id) })
     else setTag(list, id, !list.every((a) => a.tagIds.includes(id)))
     return true
   }
 
   const showTagPicker = async (list: Account[]) => {
-    handleTagChoice(await window.ham.ui.contextMenu(tagItems(list)), list)
+    handleTagChoice(await window.ham.ui.contextMenu(tagItems(tags, list)), list)
   }
 
   /** Show only accounts that pass the filter (hidden ones leave the selection, see above). */
@@ -434,14 +408,7 @@ export function App() {
   const showTagMenu = async (tag: AccountTag) => {
     const at = tags.indexOf(tag)
     const members = accounts.filter((a) => a.tagIds.includes(tag.id))
-    const choice = await window.ham.ui.contextMenu([
-      { id: 'edit', label: 'Edit…' },
-      { id: 'select', label: 'Select Accounts with Tag', enabled: members.some((a) => viewModel.visible.includes(a.id)) },
-      { id: 'up', label: 'Move Up', enabled: at > 0 },
-      { id: 'down', label: 'Move Down', enabled: at < tags.length - 1 },
-      { type: 'separator' },
-      { id: 'delete', label: 'Delete Tag' }
-    ])
+    const choice = await window.ham.ui.contextMenu(tagMenu(tag, tags, members.some((a) => viewModel.visible.includes(a.id))))
     switch (choice) {
       case 'edit':
         setFilterOpen(false)
@@ -449,15 +416,11 @@ export function App() {
       case 'select': {
         setFilterOpen(false)
         const shown = new Set(viewModel.visible)
-        return setPicked(new Set(members.map((a) => a.id).filter((id) => shown.has(id))))
+        return changePicked(() => setPicked(new Set(members.map((a) => a.id).filter((id) => shown.has(id)))))
       }
       case 'up':
-      case 'down': {
-        const ids = tags.map((t) => t.id)
-        const j = choice === 'up' ? at - 1 : at + 1
-        ;[ids[at], ids[j]] = [ids[j], ids[at]]
-        return void window.ham.tags.reorder(ids)
-      }
+      case 'down':
+        return void window.ham.tags.reorder(swapped(tags.map((t) => t.id), at, choice))
       case 'delete':
         return deleteTag(tag)
     }
@@ -465,12 +428,7 @@ export function App() {
 
   /** Click on a tag chip in the detail header. */
   const showChipMenu = async (account: Account, tag: AccountTag) => {
-    const choice = await window.ham.ui.contextMenu([
-      { id: 'remove', label: `Remove “${tag.name}”` },
-      { id: 'filter', label: `Show Only “${tag.name}”` },
-      { type: 'separator' },
-      { id: 'edit', label: 'Edit Tag…' }
-    ])
+    const choice = await window.ham.ui.contextMenu(chipMenu(tag))
     if (choice === 'remove') setTag([account], tag.id, false)
     else if (choice === 'filter' && app) setFilter({ ...app.view.filter, tags: [tag.id] })
     else if (choice === 'edit') setSheet({ kind: 'tag', tag, ids: [] })
@@ -482,60 +440,10 @@ export function App() {
     else await window.ham.tags.create(name, color, ids)
   }
 
-  const isEditable = (el: Element | null) =>
-    !!el && (el instanceof HTMLInputElement || el instanceof HTMLTextAreaElement || (el as HTMLElement).isContentEditable)
-
   const showContextMenu = async (account: Account) => {
     const many = picked.has(account.id) && picked.size > 1
     const list = many ? accounts.filter((a) => picked.has(a.id)) : [account]
-    const signedIn = account.status === 'signed-in'
-    const pinLabel = list.every((a) => a.pinned) ? (many ? `Unpin ${list.length} Accounts` : 'Unpin') : many ? `Pin ${list.length} Accounts` : 'Pin'
-    const items: ContextMenuItem[] = many
-      ? [
-          { id: 'pin', label: pinLabel, accelerator: 'CmdOrCtrl+Shift+P' },
-          { label: 'Move to Group', submenu: groupItems(list) },
-          { label: 'Tags', submenu: tagItems(list) },
-          ...(list.some((a) => a.status === 'signed-out') ? [{ id: 'sign-in', label: 'Sign In Again' }] : []),
-          ...(slackTargets(list).length ? [{ id: 'slack-sign-in', label: 'Sign In to Slack' }] : []),
-          { id: 'copy', label: `Copy ${list.length} Emails` },
-          { type: 'separator' },
-          { id: 'deselect', label: 'Deselect All', accelerator: 'CmdOrCtrl+Shift+A' },
-          { type: 'separator' },
-          { id: 'remove', label: `${list.some((a) => a.status === 'signed-in') ? 'Sign Out and Remove' : 'Remove'} ${list.length} Accounts…` }
-        ]
-      : [
-          { id: 'open', label: 'Open' },
-          ...(signedIn
-            ? [
-                { id: 'dashboard', label: 'Open Hack Club Auth' },
-                { id: 'slack', label: 'Launch Slack' },
-                ...(onSlack(account) ? [{ id: 'slack-tokens', label: 'Get Slack Tokens…' }] : []),
-                { id: 'refresh', label: 'Refresh' }
-              ]
-            : []),
-          ...(account.slack.session ? [{ id: 'slack-sign-out', label: 'Sign Out of Slack' }] : []),
-          ...(account.status === 'signed-out' ? [{ id: 'sign-in', label: 'Sign In Again' }] : []),
-          { type: 'separator' },
-          { id: 'pin', label: pinLabel, accelerator: 'CmdOrCtrl+Shift+P' },
-          { label: 'Move to Group', submenu: groupItems(list) },
-          { label: 'Tags', submenu: tagItems(list) },
-          ...(viewModel.draggable
-            ? [
-                { id: 'up', label: 'Move Up', accelerator: 'Alt+CmdOrCtrl+Up' },
-                { id: 'down', label: 'Move Down', accelerator: 'Alt+CmdOrCtrl+Down' }
-              ]
-            : []),
-          { id: 'select', label: picked.has(account.id) ? 'Deselect' : 'Select' },
-          { type: 'separator' },
-          { id: 'local-name', label: account.localName ? 'Edit Local Name…' : 'Set Local Name…' },
-          { id: 'copy', label: 'Copy Email' },
-          { type: 'separator' },
-          {
-            id: 'remove',
-            label: isPending(account.status) ? (account.fresh ? 'Cancel and Remove' : 'Cancel Sign-in') : signedIn ? 'Sign Out and Remove…' : 'Remove…'
-          }
-        ]
-    const choice = await window.ham.ui.contextMenu(items)
+    const choice = await window.ham.ui.contextMenu(accountMenu({ account, list, many, picked, groups, tags, draggable: viewModel.draggable }))
     if (handleGroupChoice(choice, list) || handleTagChoice(choice, list)) return
     switch (choice) {
       case 'open':
@@ -543,8 +451,7 @@ export function App() {
       case 'local-name':
         return setSheet({ kind: 'local-name', account })
       case 'dashboard':
-        select(account.id)
-        return setTab('web')
+        return select(account.id, 'web')
       case 'slack':
         return launchSlack(account)
       case 'slack-sign-in':
@@ -567,6 +474,8 @@ export function App() {
         return togglePick(account.id, false)
       case 'deselect':
         return setPicked(new Set())
+      case 'export':
+        return void exportAccounts(list)
       case 'copy':
         await window.ham.copyText(list.map((a) => a.email).join('\n'))
         return void toast.success(list.length > 1 ? `Copied ${list.length} emails` : 'Copied')
@@ -586,11 +495,15 @@ export function App() {
       for (let i = Math.min(ai, bi); i <= Math.max(ai, bi); i++) next.add(order[i])
     } else if (next.has(id)) next.delete(id)
     else next.add(id)
-    setPicked(next)
-    setAnchor(id)
+    changePicked(() => {
+      setPicked(next)
+      setAnchor(id)
+    })
   }
   /** Every account the filter shows (collapsed sections included). */
-  const pickAll = () => setPicked(new Set(viewModel.visible))
+  const pickAll = () => {
+    if (viewModel.visible.length > 0) changePicked(() => setPicked(new Set(viewModel.visible)))
+  }
   const selectAll = () => {
     if (viewModel.visible.length > 0 && viewModel.visible.every((id) => picked.has(id))) {
       setPicked(new Set())
@@ -604,13 +517,9 @@ export function App() {
   const signedIn = status === 'signed-in'
   const bulkMode = picked.size > 0
   const showDashboard = tab === 'web' && signedIn && !bulkMode
-  const overlayOpen = sheet !== null || confirmSignOut !== null || paletteOpen || slackConfirm !== null || slackBulkConfirm !== null || filterOpen
+  const overlayOpen =
+    sheet !== null || confirmSignOut !== null || paletteOpen || slackConfirm !== null || slackBulkConfirm !== null || filterOpen || discard !== null
   const mod = app?.info.platform === 'darwin' ? '⌘' : 'Ctrl+'
-
-  const setView = useCallback((view: ViewSettings) => {
-    setApp((s) => (s ? { ...s, view } : s))
-    void window.ham.settings.setView(view)
-  }, [])
 
   const refresh = async () => {
     if (!selected || refreshing) return
@@ -628,6 +537,30 @@ export function App() {
   const onSaved = (result: SaveResult) => {
     if (result.ok) toast.success('Saved to auth.hackclub.com')
     else if (result.reason === 'signed-out') toast.error('Signed out. Sign in again to save.')
+  }
+
+  /** Save every account (or `list`) to a file. */
+  const exportAccounts = async (list: Account[] | null) => {
+    const r = await window.ham.accounts.exportFile(list ? list.map((a) => a.id) : null)
+    if (r.status === 'saved') toast.success(`Exported ${r.count} ${r.count === 1 ? 'account' : 'accounts'}`)
+    else if (r.status === 'error') toast.error(r.message)
+  }
+
+  /** Pick an accounts file; a good one opens the import sheet. */
+  const importAccounts = async () => {
+    const r = await window.ham.accounts.importFile()
+    if (r.status === 'ready') setSheet({ kind: 'import', summary: r })
+    else if (r.status === 'error') toast.error('Couldn’t import', { description: r.message })
+  }
+
+  const confirmImport = async (summary: ImportSummary, applyView: boolean) => {
+    const r = await window.ham.accounts.importConfirm(summary.token, applyView)
+    setSheet(null)
+    if (!r.ok) return void toast.error(r.message)
+    if (r.added > 0) toast(`Adding ${r.added} ${r.added === 1 ? 'account' : 'accounts'}`)
+    else if (applyView) toast.success('View settings applied')
+    // Every new account was added some other way in the meantime.
+    else toast('Already in HAM')
   }
 
   const addEmails = async (emails: string[]) => {
@@ -658,64 +591,37 @@ export function App() {
     if (selectedId === account.id) setSelectedId(null)
   }
 
-  /** Take the progress card for a background job, or say why not. */
-  const claimBulk = () => {
-    if (bulkRunning.current) {
-      toast('Wait for the current update to finish')
-      return false
-    }
-    bulkRunning.current = true
-    return true
-  }
-
   /** Ask before signing out of (and removing) one account or a whole selection. */
   const confirmRemove = (list: Account[]) => {
     if (list.length === 0) return
-    if (list.length > 1 && bulkRunning.current) return void toast('Wait for the current update to finish')
+    if (list.length > 1 && bulk.isRunning()) return busyToast()
     setConfirmSignOut(list)
   }
 
   /** Sign out of and remove several accounts in the background, a few at a time, with a progress card. */
   const removeMany = async (list: Account[]) => {
-    if (!claimBulk()) return
     const signedIn = list.filter((a) => a.status === 'signed-in').length
     const signingOut = signedIn > 0
-    const label = signingOut ? 'Signing out' : 'Removing'
-    const removedIds = new Set<string>()
-    let unreached = 0
-    let failed = 0
-    let done = 0
-    let next = 0
-    cancelBulk.current = false
-    setProgress({ label, done: 0, total: list.length })
-    const worker = async () => {
-      while (next < list.length && !cancelBulk.current) {
-        const a = list[next++]
-        try {
-          let r = await window.ham.accounts.remove(a.id)
-          // A sign-in in progress is only cancelled by the first call (not removed, but "signed out"); the second removes it.
-          if (!r.removed && r.serverSignedOut) r = await window.ham.accounts.remove(a.id)
-          if (r.removed) {
-            removedIds.add(a.id)
-            if (!r.serverSignedOut) unreached++
-          } else failed++
-        } catch {
-          failed++
-        }
-        done++
-        setProgress((p) => ({ label, done, total: list.length, cancelling: p?.cancelling }))
+    const outcome = await bulk.run({
+      label: signingOut ? 'Signing out' : 'Removing',
+      items: list,
+      // Sign-out isn't rate limited, but keep it gentle on the server.
+      concurrency: 4,
+      fn: async (a) => {
+        let r = await window.ham.accounts.remove(a.id)
+        // A sign-in in progress is only cancelled by the first call (not removed, but "signed out"); the second removes it.
+        if (!r.removed && r.serverSignedOut) r = await window.ham.accounts.remove(a.id)
+        return r
       }
-    }
-    // Sign-out isn't rate limited, but keep it gentle on the server.
-    try {
-      await Promise.all(Array.from({ length: Math.min(4, list.length) }, worker))
-    } finally {
-      bulkRunning.current = false
-      setProgress(null)
-    }
+    })
+    if (!outcome) return busyToast()
+    const removed = outcome.results.flatMap((r) => (r.ok && r.value.removed ? [r] : []))
+    const removedIds = new Set(removed.map((r) => r.item.id))
+    const unreached = removed.filter((r) => !r.value.serverSignedOut).length
+    const failed = outcome.results.length - removed.length
     setSelectedId((id) => (id && removedIds.has(id) ? null : id))
     const n = removedIds.size
-    const stopped = next < list.length ? 'Stopped. ' : ''
+    const stopped = outcome.stopped ? 'Stopped. ' : ''
     const verb = signedIn === list.length ? 'Signed out of' : signingOut ? 'Signed out and removed' : 'Removed'
     const text = `${stopped}${verb} ${n} ${n === 1 ? 'account' : 'accounts'}${failed ? ` · ${failed} failed` : ''}`
     const description = unreached
@@ -723,9 +629,6 @@ export function App() {
       : undefined
     ;(failed ? toast.error : unreached || stopped ? toast : toast.success)(text, { description })
   }
-
-  /** Whether the account is on Hack Club Slack, so a sign-in won't create a Slack account. */
-  const onSlack = (account: Account) => account.slack.linked === true || account.slack.session
 
   const launchSlack = (account: Account) => {
     if (account.slack.linked || account.slack.session) void window.ham.accounts.launchSlack(account.id)
@@ -751,38 +654,20 @@ export function App() {
 
   /** Sign accounts in to Slack in hidden windows, a few at a time, with a progress card. */
   const signInSlackMany = async (list: Account[]) => {
-    if (list.length === 0 || !claimBulk()) return
-    const label = 'Signing in to Slack'
-    let signedIn = 0
-    let failed = 0
-    let signedOut = 0
-    let done = 0
-    let next = 0
-    cancelBulk.current = false
-    setProgress({ label, done: 0, total: list.length })
-    const worker = async () => {
-      while (next < list.length && !cancelBulk.current) {
-        const a = list[next++]
-        try {
-          const r = await window.ham.accounts.signInSlack(a.id)
-          if (r === 'signed-in' || r === 'already') signedIn++
-          else if (r === 'signed-out') signedOut++
-          else failed++
-        } catch {
-          failed++
-        }
-        done++
-        setProgress((p) => ({ label, done, total: list.length, cancelling: p?.cancelling }))
-      }
-    }
-    // The main process runs three at a time too.
-    try {
-      await Promise.all(Array.from({ length: Math.min(3, list.length) }, worker))
-    } finally {
-      bulkRunning.current = false
-      setProgress(null)
-    }
-    const stopped = next < list.length ? 'Stopped. ' : ''
+    if (list.length === 0) return
+    const outcome = await bulk.run({
+      label: 'Signing in to Slack',
+      items: list,
+      // The main process runs three at a time too.
+      concurrency: 3,
+      fn: (a) => window.ham.accounts.signInSlack(a.id)
+    })
+    if (!outcome) return busyToast()
+    const count = (pass: (r: string) => boolean) => outcome.results.filter((r) => r.ok && pass(r.value)).length
+    const signedIn = count((r) => r === 'signed-in' || r === 'already')
+    const signedOut = count((r) => r === 'signed-out')
+    const failed = outcome.results.length - signedIn - signedOut
+    const stopped = outcome.stopped ? 'Stopped. ' : ''
     const problems = [failed && `${failed} couldn’t`, signedOut && `${signedOut} signed out of Hack Club`].filter(Boolean).join(' · ')
     const text = `${stopped}Signed in to Slack on ${signedIn} ${signedIn === 1 ? 'account' : 'accounts'}${problems ? ` · ${problems}` : ''}`
     const description = failed ? 'Launch Slack on those to finish.' : undefined
@@ -791,48 +676,29 @@ export function App() {
 
   /** Save one field across accounts, one at a time, with a progress card. */
   const runBulk = async (label: string, field: FieldDef, items: { account: Account; value: string }[], undoable: boolean) => {
-    if (!claimBulk()) return
-    const previous: { account: Account; value: string }[] = []
-    let failed = 0
-    let stopped = false
-    cancelBulk.current = false
-    setProgress({ label, done: 0, total: items.length })
-    try {
-      for (let i = 0; i < items.length; i++) {
-        if (cancelBulk.current) {
-          stopped = true
-          break
-        }
-        const { account, value } = items[i]
+    const outcome = await bulk.run({
+      label,
+      items,
+      fn: async ({ account, value }) => {
         if (field.local) {
           await window.ham.accounts.setLocalName(account.id, value)
-          previous.push({ account, value: fieldValue(account, field) })
-          setProgress((p) => ({ label, done: i + 1, total: items.length, cancelling: p?.cancelling }))
-          continue
+          return true
         }
-        if (isSlackField(field)) {
-          const r = await window.ham.accounts.saveSlack(account.id, { [field.id]: value })
-          if (r.ok) previous.push({ account, value: fieldValue(account, field) })
-          else failed++
-          setProgress((p) => ({ label, done: i + 1, total: items.length, cancelling: p?.cancelling }))
-          continue
-        }
+        if (isSlackField(field)) return (await window.ham.accounts.saveSlack(account.id, { [field.id]: value })).ok
         const latest = accounts.find((a) => a.id === account.id) ?? account
         const input = { firstName: latest.firstName, lastName: latest.lastName, phone: latest.phone }
         if (field.key === 'first') input.firstName = value
         else if (field.key === 'last') input.lastName = value
         else if (field.key === 'phone') input.phone = value
-        const r = await window.ham.accounts.save(account.id, input)
-        if (r.ok) previous.push({ account, value: fieldValue(account, field) })
-        else failed++
-        setProgress((p) => ({ label, done: i + 1, total: items.length, cancelling: p?.cancelling }))
+        return (await window.ham.accounts.save(account.id, input)).ok
       }
-    } finally {
-      bulkRunning.current = false
-      setProgress(null)
-    }
+    })
+    if (!outcome) return busyToast()
+    // What each saved account had before, for Undo.
+    const previous = outcome.results.flatMap((r) => (r.ok && r.value ? [{ account: r.item.account, value: fieldValue(r.item.account, field) }] : []))
+    const failed = outcome.results.length - previous.length
     const done = previous.length
-    const text = `${stopped ? 'Stopped. ' : ''}Updated ${done} ${done === 1 ? 'account' : 'accounts'}${failed ? ` · ${failed} failed` : ''}`
+    const text = `${outcome.stopped ? 'Stopped. ' : ''}Updated ${done} ${done === 1 ? 'account' : 'accounts'}${failed ? ` · ${failed} failed` : ''}`
     if (undoable && done > 0) {
       toast.success(text, {
         duration: 8000,
@@ -871,13 +737,17 @@ export function App() {
         return setSheet({ kind: 'tag', tag: null, ids: [...picked] })
       case 'filter':
         return setFilterOpen(true)
+      case 'export':
+        return void exportAccounts(null)
+      case 'import':
+        return void importAccounts()
     }
   }
 
   // Menu commands and shortcuts. Kept in a ref so the listener sees fresh state.
   menuRef.current = (command: MenuCommand) => {
     if (command.type === 'open-palette') {
-      if (sheet === null && confirmSignOut === null) setPaletteOpen((o) => !o)
+      if (sheet === null && confirmSignOut === null && discard === null) setPaletteOpen((o) => !o)
       return
     }
     if (command.type === 'add-account') {
@@ -911,7 +781,7 @@ export function App() {
         else void refresh()
         break
       case 'toggle-tab':
-        if (signedIn) setTab((t) => (t === 'profile' ? 'web' : 'profile'))
+        if (signedIn) switchTab(tab === 'profile' ? 'web' : 'profile')
         break
       case 'select-index': {
         const target = viewModel.order[command.index]
@@ -938,34 +808,35 @@ export function App() {
       case 'sign-out':
         confirmRemove(targets())
         break
+      case 'export-accounts':
+        void exportAccounts(null)
+        break
+      case 'import-accounts':
+        void importAccounts()
+        break
     }
   }
 
   // Esc reverts unsaved profile changes.
   // ⌘A / ⇧⌘A also live here so they work wherever the menu accelerator doesn't fire.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === 'a') {
-        if (overlayOpen || isEditable(document.activeElement)) return
-        e.preventDefault()
-        if (e.shiftKey) setPicked(new Set())
-        else pickAll()
-        return
-      }
-      if (e.key !== 'Escape' || e.defaultPrevented || overlayOpen) return
-      const reverted = [formRef.current?.revert(), slackRef.current?.revert()].some(Boolean)
-      if (reverted) toast('Changes reverted')
+  const onKey = useStableCallback((e: KeyboardEvent) => {
+    if ((e.metaKey || e.ctrlKey) && !e.altKey && e.key.toLowerCase() === 'a') {
+      if (overlayOpen || isEditable(document.activeElement)) return
+      e.preventDefault()
+      if (e.shiftKey) setPicked(new Set())
+      else pickAll()
+      return
     }
+    if (e.key !== 'Escape' || e.defaultPrevented || overlayOpen) return
+    const reverted = [formRef.current?.revert(), slackRef.current?.revert()].some(Boolean)
+    if (reverted) toast('Changes reverted')
+  })
+  useEffect(() => {
     window.addEventListener('keydown', onKey)
     return () => window.removeEventListener('keydown', onKey)
-  }, [overlayOpen, viewModel.visible])
+  }, [onKey])
 
   if (!app) return <div className="app" />
-  const shownSheet = sheetLatch.value
-  const slackShown = slackLatch.value!
-  const slackBulkShown = slackBulkLatch.value ?? []
-  const slackBulkNew = slackBulkShown.filter((a) => a.slack.linked !== true)
-  const slackBulkOn = slackBulkShown.filter((a) => a.slack.linked === true)
 
   const pickedAccounts = accounts.filter((a) => picked.has(a.id))
 
@@ -993,11 +864,8 @@ export function App() {
         inboxOn={inboxOn}
         mod={mod}
         view={app.view}
-        progress={progress}
-        onCancelProgress={() => {
-          cancelBulk.current = true
-          setProgress((p) => (p ? { ...p, cancelling: true } : p))
-        }}
+        progress={bulk.progress}
+        onCancelProgress={bulk.cancel}
         onView={setView}
         onSelect={select}
         onTogglePick={togglePick}
@@ -1033,7 +901,7 @@ export function App() {
             <div className="detail">
               <BulkPanel
                 picked={pickedAccounts}
-                busy={progress !== null}
+                busy={bulk.progress !== null}
                 onClear={() => setPicked(new Set())}
                 onPin={(pinned) => setPinned(pickedAccounts, pinned)}
                 onGroup={() => void showGroupPicker(pickedAccounts)}
@@ -1062,7 +930,7 @@ export function App() {
               {app.info.mock && <p className="demo-note">Demo mode: nothing is sent to auth.hackclub.com.</p>}
             </div>
           ) : (
-            <Tabs.Root className={`detail${showDashboard ? ' wide' : ''}`} value={showDashboard ? 'web' : 'profile'} onValueChange={(v) => setTab(v as Tab)}>
+            <Tabs.Root className={`detail${showDashboard ? ' wide' : ''}`} value={showDashboard ? 'web' : 'profile'} onValueChange={(v) => switchTab(v as Tab)}>
               <header className="detail-header">
                 <Avatar account={selected} size={60} />
                 <div className="who">
@@ -1109,13 +977,7 @@ export function App() {
               </header>
 
               {pending ? (
-                <PendingPane
-                  account={selected}
-                  inbox={app.inbox}
-                  now={now}
-                  onRemove={() => void remove(selected)}
-                  onOpenSettings={() => setSheet({ kind: 'settings' })}
-                />
+                <PendingPane account={selected} inbox={app.inbox} onRemove={() => void remove(selected)} onOpenSettings={() => setSheet({ kind: 'settings' })} />
               ) : (
                 <>
                   {signedOut && (
@@ -1189,77 +1051,16 @@ export function App() {
         onAction={onPalette}
       />
 
-      {shownSheet?.kind === 'add' && (
-        <AddAccountsDialog
-          key={sheetLatch.n}
-          open={sheetLatch.open}
-          mode={shownSheet.mode}
-          accounts={accounts}
-          inboxOn={inboxOn}
-          onMode={(mode) => setSheet({ kind: 'add', mode })}
-          onClose={() => setSheet(null)}
-          onAdd={(emails) => void addEmails(emails)}
-          onOpenSettings={() => setSheet({ kind: 'settings' })}
-        />
-      )}
-      {shownSheet?.kind === 'settings' && <SettingsDialog key={sheetLatch.n} open={sheetLatch.open} app={app} onClose={() => setSheet(null)} />}
-
-      {shownSheet?.kind === 'new-group' && (
-        <GroupNameDialog
-          key={sheetLatch.n}
-          open={sheetLatch.open}
-          initial=""
-          count={shownSheet.ids.length}
-          onClose={() => setSheet(null)}
-          onSubmit={(name) => void createGroup(name, shownSheet.ids)}
-        />
-      )}
-      {shownSheet?.kind === 'rename-group' && (
-        <GroupNameDialog
-          key={sheetLatch.n}
-          open={sheetLatch.open}
-          initial={shownSheet.group.name}
-          count={0}
-          onClose={() => setSheet(null)}
-          onSubmit={(name) => {
-            setSheet(null)
-            void window.ham.groups.rename(shownSheet.group.id, name)
-          }}
-        />
-      )}
-      {shownSheet?.kind === 'local-name' && (
-        <GroupNameDialog
-          key={sheetLatch.n}
-          open={sheetLatch.open}
-          title="Local name"
-          lead="Only kept in HAM. Leave it empty to clear it."
-          initial={shownSheet.account.localName}
-          placeholder={displayName(shownSheet.account)}
-          submitLabel="Save"
-          allowEmpty
-          count={0}
-          onClose={() => setSheet(null)}
-          onSubmit={(name) => {
-            setSheet(null)
-            void window.ham.accounts.setLocalName(shownSheet.account.id, name)
-          }}
-        />
-      )}
-      {shownSheet?.kind === 'slack-tokens' && (
-        <SlackTokensDialog key={sheetLatch.n} open={sheetLatch.open} account={shownSheet.account} onClose={() => setSheet(null)} />
-      )}
-      {shownSheet?.kind === 'tag' && (
-        <TagDialog
-          key={sheetLatch.n}
-          open={sheetLatch.open}
-          tag={shownSheet.tag}
-          count={shownSheet.ids.length}
-          nextColor={TAG_COLORS[tags.length % TAG_COLORS.length]}
-          onClose={() => setSheet(null)}
-          onSubmit={(name, color) => void saveTag(shownSheet.tag, shownSheet.ids, name, color)}
-          returnFocus={shownSheet.fromFilter ? () => document.querySelector<HTMLElement>('[data-filter-button]')?.focus() : undefined}
-        />
-      )}
+      <AppSheets
+        latch={sheetLatch}
+        app={app}
+        inboxOn={inboxOn}
+        onSheet={setSheet}
+        onAddEmails={(emails) => void addEmails(emails)}
+        onCreateGroup={(name, ids) => void createGroup(name, ids)}
+        onSaveTag={(tag, ids, name, color) => void saveTag(tag, ids, name, color)}
+        onImport={confirmImport}
+      />
       {signOutLatch.value && (
         <SignOutDialog
           key={signOutLatch.n}
@@ -1275,79 +1076,35 @@ export function App() {
           }}
         />
       )}
-
       {slackLatch.value && (
-        <AlertDialog.Root key={slackLatch.n} open={slackLatch.open} onOpenChange={(o) => !o && setSlackConfirm(null)}>
-          <AlertDialog.Portal>
-            <AlertDialog.Overlay className="overlay" />
-            <AlertDialog.Content className="sheet">
-              <div className="sheet-head">
-                <AlertDialog.Title>
-                  {slackShown.slack.linked === false ? 'This account isn’t on Slack yet' : 'Open Hack Club Slack?'}
-                </AlertDialog.Title>
-                <AlertDialog.Description className="lead">
-                  If {slackShown.email} isn’t on Slack yet, signing in through Hack Club creates a Hack Club Slack account for it and adds it to the workspace.
-                </AlertDialog.Description>
-              </div>
-              <div className="dialog-actions">
-                <AlertDialog.Cancel className="btn">Cancel</AlertDialog.Cancel>
-                <AlertDialog.Action
-                  className="btn btn-primary"
-                  onClick={() => {
-                    void window.ham.accounts.launchSlack(slackShown.id)
-                    setSlackConfirm(null)
-                  }}
-                >
-                  {slackShown.slack.linked === false ? 'Create and open Slack' : 'Open Slack'}
-                </AlertDialog.Action>
-              </div>
-            </AlertDialog.Content>
-          </AlertDialog.Portal>
-        </AlertDialog.Root>
+        <SlackLaunchDialog
+          key={slackLatch.n}
+          open={slackLatch.open}
+          account={slackLatch.value}
+          onClose={() => setSlackConfirm(null)}
+          onLaunch={(a) => void window.ham.accounts.launchSlack(a.id)}
+        />
       )}
       {slackBulkLatch.value && (
-        <AlertDialog.Root key={slackBulkLatch.n} open={slackBulkLatch.open} onOpenChange={(o) => !o && setSlackBulkConfirm(null)}>
-          <AlertDialog.Portal>
-            <AlertDialog.Overlay className="overlay" />
-            <AlertDialog.Content className="sheet">
-              <div className="sheet-head">
-                <AlertDialog.Title>
-                  Sign in to Slack on {slackBulkShown.length} {slackBulkShown.length === 1 ? 'account' : 'accounts'}?
-                </AlertDialog.Title>
-                <AlertDialog.Description className="lead">
-                  {slackBulkNew.length === slackBulkShown.length
-                    ? slackBulkNew.length === 1
-                      ? 'It might not be on Slack yet. Signing in through Hack Club creates a Hack Club Slack account for it.'
-                      : 'They might not be on Slack yet. Signing in through Hack Club creates Hack Club Slack accounts for them.'
-                    : `${slackBulkNew.length} of them might not be on Slack yet. Signing in through Hack Club creates Hack Club Slack accounts for them.`}
-                </AlertDialog.Description>
-              </div>
-              <div className="dialog-actions">
-                <AlertDialog.Cancel className="btn">Cancel</AlertDialog.Cancel>
-                {slackBulkOn.length > 0 && (
-                  <AlertDialog.Action
-                    className="btn"
-                    onClick={() => {
-                      void signInSlackMany(slackBulkOn)
-                      setSlackBulkConfirm(null)
-                    }}
-                  >
-                    Only {slackBulkOn.length} on Slack
-                  </AlertDialog.Action>
-                )}
-                <AlertDialog.Action
-                  className="btn btn-primary"
-                  onClick={() => {
-                    void signInSlackMany(slackBulkShown)
-                    setSlackBulkConfirm(null)
-                  }}
-                >
-                  {slackBulkShown.length === 1 ? 'Sign in' : `Sign in all ${slackBulkShown.length}`}
-                </AlertDialog.Action>
-              </div>
-            </AlertDialog.Content>
-          </AlertDialog.Portal>
-        </AlertDialog.Root>
+        <SlackBulkDialog
+          key={slackBulkLatch.n}
+          open={slackBulkLatch.open}
+          accounts={slackBulkLatch.value}
+          onClose={() => setSlackBulkConfirm(null)}
+          onSignIn={(list) => void signInSlackMany(list)}
+        />
+      )}
+      {discardLatch.value && (
+        <DiscardDialog
+          key={discardLatch.n}
+          open={discardLatch.open}
+          onCancel={() => setDiscard(null)}
+          onDiscard={() => {
+            const next = discardLatch.value!
+            setDiscard(null)
+            next.run()
+          }}
+        />
       )}
     </div>
   )
