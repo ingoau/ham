@@ -42,7 +42,11 @@ export class InboxService {
   private readonly used = new Set<string>()
   private pollTimer: NodeJS.Timeout | null = null
   private reconnectTimer: NodeJS.Timeout | null = null
+  /** Bumped by every connect and disconnect, so a connect that finishes late drops its client. */
+  private gen = 0
   private checking = false
+  /** Bumped by every check, so one the watchdog gave up on can't clear a newer one's flag. */
+  private checkRun = 0
   private checkStartedAt = 0
   private recheck = false
   private retryMs = 5_000
@@ -124,6 +128,8 @@ export class InboxService {
   }
 
   private async connect(settings: InboxSettings) {
+    const gen = ++this.gen
+    const stale = () => gen !== this.gen
     if (this.mock) {
       this.setState({ state: 'connected', error: null })
       this.schedulePoll()
@@ -147,19 +153,29 @@ export class InboxService {
       }
     })
     // New mail in the IDLEd mailbox: look for codes straight away.
-    client.on('exists', () => void this.check())
+    client.on('exists', () => {
+      if (this.client === client) void this.check()
+    })
     try {
       await client.connect()
+      // Unlinked, relinked or reconnected meanwhile: this session isn't wanted.
+      if (stale()) {
+        client.close()
+        return
+      }
       this.client = client
       this.retryMs = 5_000
-      await this.pickPrimary()
+      this.pickPrimary()
       this.setState({ state: 'connected', error: null })
-      if (settings.folders.length === 0) void this.discoverFolders()
-      await this.idleOnPrimary()
+      if (settings.folders.length === 0) void this.discoverFolders(client)
+      await this.idleOnPrimary(client)
+      if (stale()) return
       this.schedulePoll()
       void this.check()
     } catch (err) {
+      if (this.client === client) this.client = null
       client.close()
+      if (stale()) return
       this.setState({ state: 'error', error: friendly(err) })
       this.scheduleReconnect()
     }
@@ -176,6 +192,7 @@ export class InboxService {
   }
 
   private async disconnect() {
+    this.gen++
     if (this.pollTimer) clearInterval(this.pollTimer)
     if (this.reconnectTimer) clearTimeout(this.reconnectTimer)
     this.pollTimer = null
@@ -193,15 +210,15 @@ export class InboxService {
 
   // --- folders -------------------------------------------------------------
 
-  private async folders(): Promise<ListResponse[]> {
-    const all = (await this.client!.list()) ?? []
+  private async folders(client: ImapFlow): Promise<ListResponse[]> {
+    const all = (await client.list()) ?? []
     return all.filter((f) => !f.flags?.has('\\Noselect') && !(f.specialUse && SKIP_SPECIAL.has(f.specialUse)))
   }
 
   /** Mailboxes to watch: INBOX, Junk, and any folder Hack Club Auth mail has landed in. */
-  private async candidates(): Promise<string[]> {
+  private async candidates(client: ImapFlow): Promise<string[]> {
     const saved = this.store.inbox?.folders ?? []
-    const list = await this.folders()
+    const list = await this.folders(client)
     const junk = list.filter((f) => f.specialUse === '\\Junk').map((f) => f.path)
     const exists = new Set(list.map((f) => f.path))
     const paths = [...new Set(['INBOX', ...saved, ...junk])].filter((p) => p === 'INBOX' || exists.has(p))
@@ -209,14 +226,13 @@ export class InboxService {
     return [...paths.filter((p) => p !== this.primary), this.primary]
   }
 
-  private async pickPrimary() {
+  private pickPrimary() {
     const saved = this.store.inbox?.folders ?? []
     this.primary = saved[0] ?? 'INBOX'
   }
 
-  private async idleOnPrimary() {
-    if (!this.client) return
-    const lock = await this.client.getMailboxLock(this.primary, { readOnly: true })
+  private async idleOnPrimary(client: ImapFlow) {
+    const lock = await client.getMailboxLock(this.primary, { readOnly: true })
     lock.release() // stays selected; imapflow IDLEs on it while nothing else runs
   }
 
@@ -230,26 +246,26 @@ export class InboxService {
     this.primary = path
   }
 
-  private async searchFolder(path: string, since?: Date): Promise<{ uids: number[] }> {
-    const lock = await this.client!.getMailboxLock(path, { readOnly: true })
+  private async searchFolder(client: ImapFlow, path: string, since?: Date): Promise<{ uids: number[] }> {
+    const lock = await client.getMailboxLock(path, { readOnly: true })
     try {
       const query = since ? { from: HCA_SENDER, since } : { from: HCA_SENDER }
-      const uids = (await this.client!.search(query, { uid: true })) || []
+      const uids = (await client.search(query, { uid: true })) || []
       return { uids }
     } finally {
       lock.release()
     }
   }
 
-  private async discoverFolders() {
-    if (!this.client) return
+  private async discoverFolders(client: ImapFlow) {
     try {
       const since = new Date(Date.now() - 90 * 86_400_000)
-      for (const f of await this.folders()) {
-        const { uids } = await this.searchFolder(f.path, since)
+      for (const f of await this.folders(client)) {
+        const { uids } = await this.searchFolder(client, f.path, since)
+        if (this.client !== client) return
         if (uids.length > 0 && f.path !== 'INBOX') this.rememberFolder(f.path)
       }
-      await this.idleOnPrimary()
+      await this.idleOnPrimary(client)
     } catch {
       // best effort
     }
@@ -286,6 +302,7 @@ export class InboxService {
       if (this.checking && Date.now() - this.checkStartedAt > 60_000) {
         debug('check stuck; reconnecting')
         this.checking = false
+        this.checkRun++
         this.client?.close()
         return
       }
@@ -294,12 +311,14 @@ export class InboxService {
   }
 
   private async check() {
-    if (this.mock || !this.client || this.expectations.size === 0) return
+    const client = this.client
+    if (this.mock || !client || this.expectations.size === 0) return
     if (this.checking) {
       this.recheck = true
       return
     }
     this.checking = true
+    const run = ++this.checkRun
     this.checkStartedAt = Date.now()
     try {
       const exps = [...this.expectations.values()]
@@ -308,16 +327,16 @@ export class InboxService {
       // IMAP SEARCH SINCE is by date, so look back a day and filter precisely below.
       const since = new Date(earliest - 86_400_000)
       const mails: CodeMail[] = []
-      const paths = await this.candidates()
+      const paths = await this.candidates(client)
       debug('folders', paths)
       for (const path of paths) {
-        const lock = await this.client.getMailboxLock(path, { readOnly: true })
+        const lock = await client.getMailboxLock(path, { readOnly: true })
         try {
-          const uids = (await this.client.search({ from: HCA_SENDER, since }, { uid: true })) || []
+          const uids = (await client.search({ from: HCA_SENDER, since }, { uid: true })) || []
           debug(path, uids.length, 'HCA messages since', since.toISOString())
           const fresh = uids.filter((u) => !this.used.has(`${path}:${u}`)).slice(-50)
           if (fresh.length === 0) continue
-          for await (const msg of this.client.fetch(
+          for await (const msg of client.fetch(
             fresh,
             { uid: true, envelope: true, internalDate: true, headers: ['delivered-to', 'x-original-to'] },
             { uid: true }
@@ -338,6 +357,8 @@ export class InboxService {
         }
       }
       debug('mails', mails.length, mails.map((m) => [m.key, m.receivedAt]))
+      // The connection was dropped or replaced meanwhile (perhaps by another inbox).
+      if (this.client !== client) return
       for (const hit of matchCodes(mails, exps, this.used)) {
         const path = hit.key.slice(0, hit.key.lastIndexOf(':'))
         if (path !== 'INBOX') this.rememberFolder(path)
@@ -348,10 +369,12 @@ export class InboxService {
       // A dropped connection reconnects on its own; try again next poll.
       debug('check failed', err)
     } finally {
-      this.checking = false
-      if (this.recheck) {
-        this.recheck = false
-        void this.check()
+      if (run === this.checkRun) {
+        this.checking = false
+        if (this.recheck) {
+          this.recheck = false
+          void this.check()
+        }
       }
     }
   }
@@ -366,21 +389,22 @@ export class InboxService {
       found.add(['fiona.leads@example.org', 'orpheus.slack@example.com', 'no.account@example.com'], 'slack')
       return { ok: true, addresses: found.list() }
     }
-    if (!this.client) return { ok: false, message: 'The inbox isn’t connected right now.' }
+    const client = this.client
+    if (!client) return { ok: false, message: 'The inbox isn’t connected right now.' }
     try {
       const found = new FoundSet()
-      for (const f of await this.folders()) {
-        const lock = await this.client.getMailboxLock(f.path, { readOnly: true })
+      for (const f of await this.folders(client)) {
+        const lock = await client.getMailboxLock(f.path, { readOnly: true })
         try {
           // Hack Club Auth mail, then Hack Club Slack mail. Only envelopes and two headers are fetched.
           for (const [source, query] of [
             ['hca', { from: HCA_SENDER }],
             ['slack', SLACK_SEARCH]
           ] as const) {
-            const uids = (await this.client.search(query, { uid: true })) || []
+            const uids = (await client.search(query, { uid: true })) || []
             if (uids.length === 0) continue
-            if (source === 'hca' && f.path !== 'INBOX') this.rememberFolder(f.path)
-            for await (const msg of this.client.fetch(
+            if (source === 'hca' && f.path !== 'INBOX' && this.client === client) this.rememberFolder(f.path)
+            for await (const msg of client.fetch(
               uids.slice(-2000),
               { uid: true, envelope: true, headers: ['delivered-to', 'x-original-to'] },
               { uid: true }
@@ -392,7 +416,7 @@ export class InboxService {
           lock.release()
         }
       }
-      await this.idleOnPrimary()
+      if (this.client === client) await this.idleOnPrimary(client)
       return { ok: true, addresses: found.list() }
     } catch (err) {
       return { ok: false, message: friendly(err) }

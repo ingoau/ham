@@ -3,12 +3,19 @@
 import type { ProfileInput, SlackFieldDef, SlackProfile } from '@shared/types'
 import type { ParsedProfile } from './pages'
 
+/**
+ * No response from Hack Club. `sent`: the request that counts against the
+ * rate limit may have reached the server (false when it failed before that).
+ */
+export type NetworkOutcome = { kind: 'network'; message: string; sent: boolean }
+
 export type StartOutcome =
   | { kind: 'code' }
   | { kind: 'no-account' }
   | { kind: 'rate-limited' }
   | { kind: 'locked'; message: string }
   | { kind: 'unexpected'; message: string }
+  | NetworkOutcome
 
 export type VerifyOutcome =
   | { kind: 'done' }
@@ -18,6 +25,7 @@ export type VerifyOutcome =
   | { kind: 'invalid'; message: string }
   | { kind: 'rate-limited' }
   | { kind: 'unexpected'; message: string }
+  | NetworkOutcome
 
 export type ProfileOutcome =
   | { kind: 'ok'; profile: ParsedProfile }
