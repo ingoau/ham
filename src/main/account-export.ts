@@ -1,7 +1,7 @@
 // The account list as a file: emails and how they're organised, to move to
 // another computer. No sessions, tokens, inbox details or HAM's own ids: groups
 // and tags travel by name, and accounts sign in again after an import.
-import { NO_TAGS, TAG_COLORS, type Account, type AccountGroup, type AccountTag, type GroupBy, type LineKind, type SortBy, type StatusFilter, type TagColor, type ViewSettings } from '@shared/types'
+import { GROUP_BYS, LINE_KINDS, NO_TAGS, SORT_BYS, STATUS_FILTERS, TAG_COLORS, type Account, type AccountGroup, type AccountTag, type GroupBy, type LineKind, type SortBy, type StatusFilter, type TagColor, type ViewSettings } from '@shared/types'
 
 export const EXPORT_FORMAT = 'ham-accounts'
 export const EXPORT_VERSION = 1
@@ -9,6 +9,7 @@ export const EXPORT_VERSION = 1
 export const MAX_EXPORT_BYTES = 20 * 1024 * 1024
 const MAX_ACCOUNTS = 10_000
 const MAX_NAMES = 1_000
+const MAX_EMAIL = 320
 
 export interface ExportedAccount {
   email: string
@@ -61,7 +62,8 @@ export function buildExport(src: Source, ids: string[] | null, now = new Date())
   const tagName = new Map(src.tags.map((t) => [t.id, t.name]))
   const usedGroups = new Set(accounts.map((a) => a.groupId))
   const usedTags = new Set(accounts.flatMap((a) => a.tagIds))
-  const { collapsed: _collapsed, filter, ...view } = src.view
+  const v = src.view
+  const filter = v.filter
   return {
     format: EXPORT_FORMAT,
     version: EXPORT_VERSION,
@@ -75,8 +77,16 @@ export function buildExport(src: Source, ids: string[] | null, now = new Date())
     })),
     groups: src.groups.filter((g) => !only || usedGroups.has(g.id)).map((g) => ({ name: g.name })),
     tags: src.tags.filter((t) => !only || usedTags.has(t.id)).map((t) => ({ name: t.name, color: t.color })),
+    // Named fields only: nothing else in the stored view goes into the file.
     view: {
-      ...view,
+      sortBy: v.sortBy,
+      sortDir: v.sortDir,
+      groupBy: v.groupBy,
+      groupTpl: v.groupTpl,
+      line1: v.line1,
+      line1Tpl: v.line1Tpl,
+      line2: v.line2,
+      line2Tpl: v.line2Tpl,
       filter: {
         tags: filter.tags.map((t) => tagName.get(t)).filter((n): n is string => n !== undefined),
         untagged: filter.tags.includes(NO_TAGS),
@@ -100,10 +110,6 @@ export type ParseResult = { ok: true; file: ExportFile } | { ok: false; message:
 class Invalid extends Error {}
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
-const SORTS: SortBy[] = ['manual', 'line1', 'hca', 'sdisplay', 'email', 'added', 'status']
-const GROUP_BYS: GroupBy[] = ['none', 'status', 'domain', 'slack', 'tpl']
-const LINES: LineKind[] = ['best', 'local', 'hca', 'sfull', 'sdisplay', 'email', 'tpl', 'none']
-const STATUSES: StatusFilter[] = ['signed-in', 'signed-out', 'attention', 'adding']
 
 const isObject = (v: unknown): v is Record<string, unknown> => !!v && typeof v === 'object' && !Array.isArray(v)
 const clean = (s: string, max: number) => s.replace(/\s+/g, ' ').trim().slice(0, max)
@@ -140,7 +146,9 @@ function distinct<T>(items: T[], key: (item: T) => string): T[] {
 function readAccount(v: unknown, n: number): ExportedAccount {
   const what = `Account ${n}`
   if (!isObject(v)) throw new Invalid(`${what} isn’t valid.`)
-  const email = text(v.email, `${what}’s email`, 320).toLowerCase()
+  // Not cut to length: a cut address could be someone else's.
+  const email = text(v.email, `${what}’s email`, Infinity).toLowerCase()
+  if (email.length > MAX_EMAIL) throw new Invalid(`${what}’s email is too long.`)
   if (!EMAIL.test(email)) throw new Invalid(`${what}’s email isn’t valid.`)
   if (v.pinned !== undefined && typeof v.pinned !== 'boolean') throw new Invalid(`${what}’s pinned isn’t true or false.`)
   return {
@@ -164,19 +172,19 @@ function readView(v: unknown): ExportedView {
     return x.slice(0, 2000)
   }
   return {
-    sortBy: oneOf(v.sortBy, SORTS, 'The sort order'),
+    sortBy: oneOf(v.sortBy, SORT_BYS, 'The sort order'),
     sortDir: oneOf(v.sortDir, ['asc', 'desc'] as const, 'The sort direction'),
     groupBy: oneOf(v.groupBy, GROUP_BYS, 'Group by'),
     groupTpl: tpl(v.groupTpl, 'The group template'),
-    line1: oneOf(v.line1, LINES.filter((l): l is Exclude<LineKind, 'none'> => l !== 'none'), 'The first line'),
+    line1: oneOf(v.line1, LINE_KINDS.filter((l): l is Exclude<LineKind, 'none'> => l !== 'none'), 'The first line'),
     line1Tpl: tpl(v.line1Tpl, 'The first line template'),
-    line2: oneOf(v.line2, LINES, 'The second line'),
+    line2: oneOf(v.line2, LINE_KINDS, 'The second line'),
     line2Tpl: tpl(v.line2Tpl, 'The second line template'),
     filter: {
       tags: distinct((f.tags === undefined ? [] : list(f.tags, 'Filter tags', MAX_NAMES)).map((t) => text(t, 'A filter tag', 40)), (t) => t),
       untagged: f.untagged === true,
       tagMode: f.tagMode === 'all' ? 'all' : 'any',
-      status: f.status === undefined ? [] : [...new Set(list(f.status, 'Filter statuses', STATUSES.length).map((s) => oneOf(s, STATUSES, 'A filter status')))]
+      status: f.status === undefined ? [] : [...new Set(list(f.status, 'Filter statuses', STATUS_FILTERS.length).map((s) => oneOf(s, STATUS_FILTERS, 'A filter status')))]
     }
   }
 }
@@ -185,7 +193,8 @@ function readView(v: unknown): ExportedView {
 export function parseExport(raw: string): ParseResult {
   let data: unknown
   try {
-    data = JSON.parse(raw)
+    // Editors on Windows often save UTF-8 with a byte order mark.
+    data = JSON.parse(raw.replace(/^\uFEFF/, ''))
   } catch {
     return { ok: false, message: 'This file isn’t a HAM accounts file.' }
   }
@@ -269,10 +278,17 @@ export function planImport(file: ExportFile, have: { accounts: { email: string }
 /** An imported view as settings: tag names become ids (unknown ones drop out); collapsed sections are kept. */
 export function viewFromImport(view: ExportedView, tags: AccountTag[], current: ViewSettings): ViewSettings {
   const ids = new Map(tags.map((t) => [lower(t.name), t.id]))
-  const { filter, ...rest } = view
+  const { filter } = view
   const tagIds = filter.tags.map((n) => ids.get(lower(n))).filter((id): id is string => !!id)
   return {
-    ...rest,
+    sortBy: view.sortBy,
+    sortDir: view.sortDir,
+    groupBy: view.groupBy,
+    groupTpl: view.groupTpl,
+    line1: view.line1,
+    line1Tpl: view.line1Tpl,
+    line2: view.line2,
+    line2Tpl: view.line2Tpl,
     collapsed: current.collapsed,
     filter: { tags: [...tagIds, ...(filter.untagged ? [NO_TAGS] : [])], tagMode: filter.tagMode, status: filter.status }
   }

@@ -56,7 +56,14 @@ describe('File menu', () => {
   })
 
   it('brings HAM forward to export or import from another window', () => {
-    expect(routeMenuCommand({ type: 'export-accounts' }, 'other', false)).toBe('focus-and-send')
-    expect(routeMenuCommand({ type: 'import-accounts' }, 'other', false)).toBe('focus-and-send')
+    const send = vi.fn()
+    const main = { isDestroyed: () => false, isMinimized: () => true, restore: vi.fn(), focus: vi.fn(), contentView: { children: [] }, webContents: {} }
+    buildMenu(send, () => main as never)
+    const file = built.template.find((m) => m.label === 'File')!.submenu!
+    const slackWindow = {}
+    file.find((i) => i.label === 'Import Accounts…')!.click!(undefined, slackWindow, { triggeredByAccelerator: false })
+    expect(main.restore).toHaveBeenCalled()
+    expect(main.focus).toHaveBeenCalled()
+    expect(send).toHaveBeenCalledWith({ type: 'import-accounts' })
   })
 })

@@ -1,4 +1,4 @@
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmdirSync, writeFileSync } from 'node:fs'
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmdirSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname } from 'node:path'
 import { afterAll, afterEach, describe, expect, it, vi } from 'vitest'
@@ -58,6 +58,11 @@ describe('loading', () => {
     expect(view).toMatchObject({ ...DEFAULT_VIEW, filter: { tags: ['a'], tagMode: 'any', status: ['signed-in'] } })
     expect(withDefaults({}).filter.tags).toEqual([])
   })
+
+  it('keeps only the named view settings, and replaces odd values', () => {
+    const view = withDefaults({ sortBy: 'random', line2Tpl: 5, collapsed: { 'tpl:A': true, 'tpl:B': 'yes' }, secret: 'x' } as unknown as Partial<typeof DEFAULT_VIEW>)
+    expect(view).toEqual({ ...DEFAULT_VIEW, collapsed: { 'tpl:A': true } })
+  })
 })
 
 describe('an unreadable file', () => {
@@ -98,6 +103,24 @@ describe('an unreadable file', () => {
     expect(read(file).accounts[0].id).toBe('a')
   })
 
+  it('is left alone when it can’t be read at all, and nothing is written this session', () => {
+    const file = tempFile()
+    const text = JSON.stringify({ version: 3, accounts: [account('a')] })
+    writeFileSync(file, text)
+    chmodSync(file, 0o000)
+    vi.spyOn(console, 'warn').mockImplementation(() => {})
+    try {
+      const store = new Store(file)
+      expect(store.problem).toEqual({ kind: 'read-only', reason: 'unreadable' })
+      store.upsert(account('b'))
+      store.flush()
+    } finally {
+      chmodSync(file, 0o600)
+    }
+    expect(readFileSync(file, 'utf8')).toBe(text)
+    expect(readdirSync(dirname(file)).filter((f) => f.includes('corrupt'))).toEqual([])
+  })
+
   it('a missing file with a good temp file uses the temp file', () => {
     const file = tempFile()
     writeFileSync(`${file}.tmp`, JSON.stringify({ version: 3, accounts: [account('a')] }))
@@ -119,6 +142,18 @@ describe('a file from a newer HAM', () => {
     store.theme = 'dark'
     store.flush()
     expect(readFileSync(file, 'utf8')).toBe(text)
+  })
+
+  it('is read-only even when it has no accounts list', () => {
+    const file = tempFile()
+    const text = JSON.stringify({ version: STORE_VERSION + 1, profiles: [] })
+    writeFileSync(file, text)
+    const store = new Store(file)
+    expect(store.problem).toEqual({ kind: 'read-only', reason: 'newer' })
+    store.upsert(account('b'))
+    store.flush()
+    expect(readFileSync(file, 'utf8')).toBe(text)
+    expect(readdirSync(dirname(file)).filter((f) => f.includes('corrupt'))).toEqual([])
   })
 })
 

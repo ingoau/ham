@@ -49,6 +49,13 @@ describe('buildExport', () => {
     expect(file.view).not.toHaveProperty('collapsed')
   })
 
+  it('exports only the named view settings', () => {
+    const stray = { ...view, secret: 'token-123', inbox: { password: 'x' } } as typeof view
+    const file = buildExport({ ...src, view: stray }, null, NOW)
+    expect(Object.keys(file.view!).sort()).toEqual(['filter', 'groupBy', 'groupTpl', 'line1', 'line1Tpl', 'line2', 'line2Tpl', 'sortBy', 'sortDir'])
+    expect(JSON.stringify(file)).not.toContain('token-123')
+  })
+
   it('never includes sessions, Slack data, partitions or ids', () => {
     const text = JSON.stringify(buildExport(src, null, NOW))
     for (const secret of ['partition', 'p-ada', 'U123', '"profile"', 'attemptPath', '"id"', 'g1', 't1', 'expiresAt', 'status":"signed-in"']) expect(text).not.toContain(secret)
@@ -77,6 +84,21 @@ describe('parseExport', () => {
     for (const text of ['not json', '[]', 'null', '{}', JSON.stringify({ format: 'other', version: 1, accounts: [] })]) {
       expect(parseExport(text)).toEqual({ ok: false, message: 'This file isn’t a HAM accounts file.' })
     }
+  })
+
+  it('reads a file saved with a byte order mark', () => {
+    expect(parseExport(`\uFEFF${fileText()}`).ok).toBe(true)
+  })
+
+  it('refuses an email too long to keep rather than cutting it short', () => {
+    // Cut to 320 characters, this would be a different, valid address.
+    const email = `${'a'.repeat(300)}@example.com${'m'.repeat(20)}`
+    expect(parseExport(fileText({ accounts: [{ email }] }))).toEqual({ ok: false, message: 'Account 1’s email is too long.' })
+  })
+
+  it('imports only the named view settings', () => {
+    const r = parseExport(fileText({ view: { ...buildExport(src, null).view, secret: 'x' } }))
+    expect(r.ok && r.file.view).not.toHaveProperty('secret')
   })
 
   it('refuses unknown versions', () => {

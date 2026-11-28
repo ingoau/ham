@@ -1,7 +1,8 @@
 // The main process side of window.ham: one handler per InvokeMethod. Only the
 // app's own window may call in, and every argument is checked here.
 import { randomUUID } from 'node:crypto'
-import { readFile, stat, writeFile } from 'node:fs/promises'
+import { constants } from 'node:fs'
+import { open, writeFile } from 'node:fs/promises'
 import { join } from 'node:path'
 import { app, clipboard, dialog, ipcMain, Menu, shell, type BrowserWindow, type MenuItemConstructorOptions } from 'electron'
 import { IPC, type InvokeMethod } from '@shared/ipc'
@@ -36,6 +37,35 @@ export interface IpcContext {
 }
 
 type Handler = (...args: never[]) => unknown
+
+/**
+ * A picked import file's text. Only regular files: a FIFO or device could block a read
+ * forever. Opened non-blocking so even the open can't hang, and capped by what was read,
+ * not by what stat said.
+ */
+export async function readImportFile(path: string): Promise<{ ok: true; text: string } | { ok: false; message: string }> {
+  const tooBig = { ok: false as const, message: 'This file is too big to be a HAM accounts file.' }
+  let fh: Awaited<ReturnType<typeof open>> | null = null
+  try {
+    fh = await open(path, constants.O_RDONLY | (constants.O_NONBLOCK ?? 0))
+    const info = await fh.stat()
+    if (!info.isFile()) return { ok: false, message: 'This isn’t a file HAM can read.' }
+    if (info.size > MAX_EXPORT_BYTES) return tooBig
+    const buf = Buffer.alloc(MAX_EXPORT_BYTES + 1)
+    let n = 0
+    while (n < buf.length) {
+      const { bytesRead } = await fh.read(buf, n, buf.length - n, null)
+      if (!bytesRead) break
+      n += bytesRead
+    }
+    if (n > MAX_EXPORT_BYTES) return tooBig
+    return { ok: true, text: buf.subarray(0, n).toString('utf8') }
+  } catch (err) {
+    return { ok: false, message: `Couldn’t read the file: ${(err as Error).message}` }
+  } finally {
+    await fh?.close().catch(() => {})
+  }
+}
 
 /** Changes from the renderer: string values only, for at most 200 keys. */
 function cleanSlackChanges(changes: unknown): SlackProfile {
@@ -138,14 +168,9 @@ export function registerIpc(ctx: IpcContext) {
       const picked = await (win ? dialog.showOpenDialog(win, options) : dialog.showOpenDialog(options))
       const path = picked.filePaths[0]
       if (picked.canceled || !path) return { status: 'canceled' }
-      let text: string
-      try {
-        if ((await stat(path)).size > MAX_EXPORT_BYTES) return { status: 'error', message: 'This file is too big to be a HAM accounts file.' }
-        text = await readFile(path, 'utf8')
-      } catch (err) {
-        return { status: 'error', message: `Couldn’t read the file: ${(err as Error).message}` }
-      }
-      const parsed = parseExport(text)
+      const read = await readImportFile(path)
+      if (!read.ok) return { status: 'error', message: read.message }
+      const parsed = parseExport(read.text)
       if (!parsed.ok) return { status: 'error', message: parsed.message }
       const plan = planImport(parsed.file, { accounts: accounts.list(), groups: store.groups, tags: store.tags })
       pendingImport = { token: randomUUID(), plan }

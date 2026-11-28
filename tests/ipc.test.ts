@@ -1,11 +1,17 @@
-import { describe, expect, it, vi } from 'vitest'
+import { execFileSync } from 'node:child_process'
+import { writeFileSync } from 'node:fs'
+import { join } from 'node:path'
+import { afterAll, describe, expect, it, vi } from 'vitest'
 
-const electron = vi.hoisted(() => ({ handlers: new Map<string, (...args: unknown[]) => unknown>() }))
+const electron = vi.hoisted(() => ({
+  handlers: new Map<string, (...args: unknown[]) => unknown>(),
+  showOpenDialog: vi.fn(async (): Promise<{ canceled: boolean; filePaths: string[] }> => ({ canceled: true, filePaths: [] }))
+}))
 vi.mock('electron', () => ({
   ipcMain: { handle: (channel: string, fn: (...args: unknown[]) => unknown) => electron.handlers.set(channel, fn) },
   app: { getPath: () => '/nonexistent', getVersion: () => '0.0.0' },
   clipboard: { writeText: vi.fn() },
-  dialog: {},
+  dialog: { showOpenDialog: electron.showOpenDialog },
   Menu: {},
   shell: {},
   BrowserWindow: class {},
@@ -17,6 +23,9 @@ vi.mock('electron', () => ({
 const { bool, bounds, handlerFor, num, str, strArr } = await import('../src/main/ipc-input')
 const { registerIpc } = await import('../src/main/ipc')
 const { IPC } = await import('../src/shared/ipc')
+const { buildExport } = await import('../src/main/account-export')
+const { DEFAULT_VIEW } = await import('../src/shared/types')
+const { removeTempDirs, tempFile } = await import('./main-helpers')
 type IpcContext = import('../src/main/ipc').IpcContext
 
 describe('input helpers', () => {
@@ -113,5 +122,91 @@ describe('registerIpc', () => {
     expect(dashboard.setBounds).not.toHaveBeenCalled()
     call('dashboard.show', 'a', { x: 0, y: 0, width: 100, height: 10 })
     expect(dashboard.show).toHaveBeenCalledWith('a', { x: 0, y: 0, width: 100, height: 10 })
+  })
+})
+
+afterAll(removeTempDirs)
+
+describe('importing a file', () => {
+  const exportFile = (emails: string[]) =>
+    JSON.stringify(
+      buildExport(
+        { accounts: emails.map((email, i) => ({ id: `a${i}`, email, localName: '', groupId: null, tagIds: [], pinned: false }) as never), groups: [], tags: [], view: DEFAULT_VIEW },
+        null
+      )
+    )
+
+  function pick(text: string | null, name = 'HAM accounts.json') {
+    const file = join(tempFile(), '..', name)
+    if (text !== null) writeFileSync(file, text)
+    electron.showOpenDialog.mockResolvedValueOnce({ canceled: false, filePaths: [file] })
+    return file
+  }
+
+  function setup() {
+    const wc = {}
+    const accounts = new Proxy({} as Record<string, ReturnType<typeof vi.fn>>, {
+      get: (target, key: string) => (target[key] ??= vi.fn())
+    })
+    accounts.list.mockReturnValue([])
+    accounts.importAccounts.mockReturnValue(1)
+    const ctx = {
+      mock: true,
+      store: { groups: [], tags: [], view: DEFAULT_VIEW, pruneFilter: (v: unknown) => v },
+      accounts,
+      inbox: {},
+      mainWindow: () => ({ webContents: wc }),
+      dashboard: () => null,
+      state: () => ({}),
+      send: vi.fn(),
+      broadcastState: vi.fn()
+    } as unknown as IpcContext
+    registerIpc(ctx)
+    const handle = electron.handlers.get(IPC.invoke)!
+    return { call: (method: string, ...args: unknown[]) => handle({ sender: wc }, method, ...args) as Promise<unknown>, accounts }
+  }
+
+  it('confirms only with the token of the file just checked, once', async () => {
+    const { call, accounts } = setup()
+    expect(await call('accounts.importConfirm', 'anything', false)).toEqual({ ok: false, message: 'Open the file again to import it.' })
+
+    pick(exportFile(['a@example.com']))
+    const preview = (await call('accounts.importFile')) as { status: string; token: string; added: number }
+    expect(preview).toMatchObject({ status: 'ready', added: 1 })
+    expect(await call('accounts.importConfirm', 'wrong', false)).toEqual({ ok: false, message: 'Open the file again to import it.' })
+    expect(accounts.importAccounts).not.toHaveBeenCalled()
+    // A wrong token doesn't use up the right one.
+    expect(await call('accounts.importConfirm', preview.token, false)).toEqual({ ok: true, added: 1 })
+    expect(await call('accounts.importConfirm', preview.token, false)).toEqual({ ok: false, message: 'Open the file again to import it.' })
+    expect(accounts.importAccounts).toHaveBeenCalledTimes(1)
+  })
+
+  it('a newer check replaces the older token', async () => {
+    const { call } = setup()
+    pick(exportFile(['a@example.com']))
+    const first = (await call('accounts.importFile')) as { token: string }
+    pick(exportFile(['b@example.com']))
+    const second = (await call('accounts.importFile')) as { token: string }
+    expect(await call('accounts.importConfirm', first.token, false)).toMatchObject({ ok: false })
+    expect(await call('accounts.importConfirm', second.token, false)).toMatchObject({ ok: true })
+  })
+
+  it('reads a file with a byte order mark', async () => {
+    const { call } = setup()
+    pick(`\uFEFF${exportFile(['a@example.com'])}`)
+    expect(await call('accounts.importFile')).toMatchObject({ status: 'ready', added: 1 })
+  })
+
+  it.skipIf(process.platform === 'win32')('refuses a FIFO named like a JSON file instead of waiting on it forever', async () => {
+    const { call } = setup()
+    const fifo = pick(null, 'pipe.json')
+    execFileSync('mkfifo', [fifo])
+    expect(await call('accounts.importFile')).toEqual({ status: 'error', message: 'This isn’t a file HAM can read.' })
+  })
+
+  it('refuses a folder', async () => {
+    const { call } = setup()
+    electron.showOpenDialog.mockResolvedValueOnce({ canceled: false, filePaths: [join(tempFile(), '..')] })
+    expect(await call('accounts.importFile')).toMatchObject({ status: 'error' })
   })
 })

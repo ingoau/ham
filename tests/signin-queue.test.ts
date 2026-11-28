@@ -5,7 +5,7 @@ import type { StartOutcome, VerifyOutcome } from '../src/main/auth/backend'
 vi.mock('electron', () => ({ app: { getPath: () => tmpdir() } }))
 const { Store } = await import('../src/main/store')
 const { AccountService, ATTEMPT_MS } = await import('../src/main/accounts')
-const { NETWORK_RETRY } = await import('../src/main/signin-queue')
+const { NETWORK_RETRY, SENT_RETRY_LIMIT } = await import('../src/main/signin-queue')
 const { LOGIN_LIMIT } = await import('../src/main/limits')
 const { account, removeTempDirs, settle, tempFile } = await import('./main-helpers')
 type Backend = import('../src/main/auth/backend').AuthBackend
@@ -151,6 +151,29 @@ describe('network errors', () => {
     service.add(['a@example.com'])
     await settle()
     expect(store.loginLog).toHaveLength(1)
+  })
+
+  it('fail after a few retries of a request that may have reached Hack Club', async () => {
+    const { store, be, service } = setup()
+    be.startLogin.mockResolvedValue({ kind: 'network', message: 'Timed out', sent: true })
+    await service.resume()
+    const [id] = service.add(['a@example.com']).added
+    await settle()
+    expect(store.find(id)!.status).toBe('queued')
+    expect(store.find(id)!.pending?.message).toBe('Timed out')
+    await vi.advanceTimersByTimeAsync(10 * 60 * 1000)
+    expect(be.startLogin).toHaveBeenCalledTimes(SENT_RETRY_LIMIT + 1)
+    expect(store.find(id)!.status).toBe('failed')
+    expect(store.find(id)!.pending?.message).toBe('Timed out')
+  })
+
+  it('show why it’s waiting', async () => {
+    const { store, be, service } = setup()
+    be.startLogin.mockResolvedValueOnce({ kind: 'network', message: 'Offline', sent: false })
+    const [id] = service.add(['a@example.com']).added
+    await settle()
+    expect(store.find(id)!.status).toBe('queued')
+    expect(store.find(id)!.pending?.message).toBe('Offline')
   })
 
   it('a restart skips the wait', async () => {

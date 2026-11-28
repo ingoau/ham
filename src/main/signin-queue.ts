@@ -18,6 +18,8 @@ const AUTO_SUBMIT_DELAY = 700
 const AUTO_RETRY = 15_000
 /** Waits before starting a sign-in again after a network error, growing with each one in a row. */
 export const NETWORK_RETRY = [5_000, 15_000, 60_000]
+/** Retries in a row after a request that may have reached Hack Club (each one may send a code email). */
+export const SENT_RETRY_LIMIT = 2
 
 export interface InboxHooks {
   readonly connected: boolean
@@ -43,8 +45,8 @@ export class SignInQueue {
   private readonly perEmail = new Map<string, SlidingWindow>()
   private readonly loginLimit: SlidingWindow
   private readonly checkLimit: SlidingWindow
-  /** Network errors in a row, and when to try again. */
-  private readonly retries = new Map<string, { count: number; at: number }>()
+  /** Network errors in a row (`sent`: those that may have reached Hack Club), and when to try again. */
+  private readonly retries = new Map<string, { count: number; sent: number; at: number }>()
   private inbox: InboxHooks | null = null
   private timer: NodeJS.Timeout | null = null
   private ticking = false
@@ -290,12 +292,20 @@ export class SignInQueue {
         this.update(id, { status: 'queued', pending: { ...freshPending(), message: null } })
         return
       case 'network': {
-        // Offline or a dropped connection: wait, then try again.
+        // Offline or a dropped connection: wait, then try again. A request that may have
+        // reached Hack Club (a timeout) may have sent a code email, so only retry it a little.
         if (!outcome.sent) this.refund(a.email, takenAt)
-        const count = (this.retries.get(id)?.count ?? 0) + 1
+        const prev = this.retries.get(id)
+        const sentCount = (prev?.sent ?? 0) + (outcome.sent ? 1 : 0)
+        if (sentCount > SENT_RETRY_LIMIT) {
+          this.retries.delete(id)
+          this.update(id, { status: 'failed', pending: { ...freshPending(), second, message: outcome.message } })
+          return
+        }
+        const count = (prev?.count ?? 0) + 1
         const at = Date.now() + NETWORK_RETRY[Math.min(count, NETWORK_RETRY.length) - 1]
-        this.retries.set(id, { count, at })
-        this.update(id, { status: 'queued', pending: { ...freshPending(), second, startsAt: new Date(at).toISOString() } })
+        this.retries.set(id, { count, sent: sentCount, at })
+        this.update(id, { status: 'queued', pending: { ...freshPending(), second, startsAt: new Date(at).toISOString(), message: outcome.message } })
         return
       }
       case 'locked':

@@ -6,7 +6,7 @@ import { app } from 'electron'
 import { closeSync, fsyncSync, mkdirSync, openSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
 import { migrateTemplate } from '@shared/fields'
-import { DEFAULT_VIEW, EMPTY_FILTER, NO_TAGS, TAG_COLORS, type Account, type AccountGroup, type AccountTag, type SlackFieldDef, type Theme, type ViewSettings } from '@shared/types'
+import { DEFAULT_VIEW, GROUP_BYS, LINE_KINDS, NO_TAGS, SORT_BYS, STATUS_FILTERS, TAG_COLORS, type Account, type AccountGroup, type AccountTag, type SlackFieldDef, type Theme, type ViewSettings } from '@shared/types'
 
 export interface StoredAccount extends Account {
   /** Electron session partition holding this account's cookies. */
@@ -118,7 +118,13 @@ function isUsable(a: Partial<StoredAccount> | null): a is Partial<StoredAccount>
   return !!a && typeof a === 'object' && !!a.id && typeof a.id === 'string' && !!a.partition && typeof a.partition === 'string' && typeof a.email === 'string'
 }
 
-type ReadResult = { kind: 'ok'; raw: Record<string, unknown> } | { kind: 'missing' } | { kind: 'bad'; error: unknown }
+type ReadResult =
+  | { kind: 'ok'; raw: Record<string, unknown> }
+  | { kind: 'missing' }
+  /** The file is there but couldn't be read (permissions, a disk error): it may be fine. */
+  | { kind: 'unreadable'; error: unknown }
+  /** Read, but not JSON or not a HAM accounts file. */
+  | { kind: 'bad'; error: unknown }
 
 function readRaw(file: string): ReadResult {
   let text: string
@@ -126,11 +132,14 @@ function readRaw(file: string): ReadResult {
     text = readFileSync(file, 'utf8')
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === 'ENOENT') return { kind: 'missing' }
-    return { kind: 'bad', error: err }
+    return { kind: 'unreadable', error: err }
   }
   try {
     const raw = JSON.parse(text) as Record<string, unknown> | null
-    if (raw && typeof raw === 'object' && Array.isArray(raw.accounts)) return { kind: 'ok', raw }
+    if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return { kind: 'bad', error: new Error('Not a HAM accounts file') }
+    // A newer HAM may store accounts differently: open it read-only rather than judge its shape.
+    if (typeof raw.version === 'number' && raw.version > STORE_VERSION) return { kind: 'ok', raw }
+    if (Array.isArray(raw.accounts)) return { kind: 'ok', raw }
     return { kind: 'bad', error: new Error('Not a HAM accounts file') }
   } catch (err) {
     return { kind: 'bad', error: err }
@@ -146,16 +155,35 @@ function migrateView(view: ViewSettings): ViewSettings {
   }
 }
 
-/** Fill in view settings that older versions (or a bad caller) left out. */
+/** The longest template kept. */
+const MAX_TEMPLATE = 2000
+const MAX_COLLAPSED = 1000
+
+const oneOf = <T>(v: unknown, allowed: readonly T[], fallback: T): T => (allowed.includes(v as T) ? (v as T) : fallback)
+const tpl = (v: unknown, fallback: string) => (typeof v === 'string' ? v.slice(0, MAX_TEMPLATE) : fallback)
+
+/** Only the named view settings, each checked; anything missing or odd (from an older version or a bad caller) gets its default. */
 export function withDefaults(view: Partial<ViewSettings>): ViewSettings {
-  const f = view.filter
+  const v = view as Record<string, unknown>
+  const f = (v.filter && typeof v.filter === 'object' ? v.filter : {}) as Partial<Record<keyof ViewSettings['filter'], unknown>>
+  const collapsed: Record<string, boolean> = {}
+  if (v.collapsed && typeof v.collapsed === 'object' && !Array.isArray(v.collapsed)) {
+    for (const [k, on] of Object.entries(v.collapsed).slice(0, MAX_COLLAPSED)) if (on === true && k.length <= 500) collapsed[k] = true
+  }
   return {
-    ...DEFAULT_VIEW,
-    ...view,
+    sortBy: oneOf(v.sortBy, SORT_BYS, DEFAULT_VIEW.sortBy),
+    sortDir: oneOf(v.sortDir, ['asc', 'desc'] as const, DEFAULT_VIEW.sortDir),
+    groupBy: oneOf(v.groupBy, GROUP_BYS, DEFAULT_VIEW.groupBy),
+    groupTpl: tpl(v.groupTpl, DEFAULT_VIEW.groupTpl),
+    line1: oneOf(v.line1, LINE_KINDS.filter((l) => l !== 'none') as Exclude<ViewSettings['line1'], 'none'>[], DEFAULT_VIEW.line1),
+    line1Tpl: tpl(v.line1Tpl, DEFAULT_VIEW.line1Tpl),
+    line2: oneOf(v.line2, LINE_KINDS, DEFAULT_VIEW.line2),
+    line2Tpl: tpl(v.line2Tpl, DEFAULT_VIEW.line2Tpl),
+    collapsed,
     filter: {
-      tags: Array.isArray(f?.tags) ? f.tags.filter((t) => typeof t === 'string') : [],
-      tagMode: f?.tagMode === 'all' ? 'all' : 'any',
-      status: Array.isArray(f?.status) ? f.status.filter((s) => ['signed-in', 'signed-out', 'attention', 'adding'].includes(s)) : EMPTY_FILTER.status
+      tags: Array.isArray(f.tags) ? f.tags.filter((t): t is string => typeof t === 'string') : [],
+      tagMode: f.tagMode === 'all' ? 'all' : 'any',
+      status: Array.isArray(f.status) ? f.status.filter((s): s is ViewSettings['filter']['status'][number] => STATUS_FILTERS.includes(s)) : []
     }
   }
 }
@@ -187,6 +215,13 @@ export class Store {
     // A write cut short before its rename leaves the newest data in the temp file.
     const tmp = readRaw(`${this.file}.tmp`)
     if (main.kind === 'missing') return tmp.kind === 'ok' ? this.open(tmp.raw) : migrate({})
+    if (main.kind === 'unreadable') {
+      // Likely a passing problem with a good file: leave it alone and don't write this session.
+      console.warn('[store] couldn’t read', this.file, main.error)
+      this.writable = false
+      this.loadProblem = { kind: 'read-only', reason: 'unreadable' }
+      return tmp.kind === 'ok' ? migrate(tmp.raw) : migrate({})
+    }
     console.error('[store] unreadable', this.file, main.error)
     // Move it aside so the next write can't destroy it.
     const backup = `${this.file}.corrupt-${new Date().toISOString().replace(/[:.]/g, '-')}`

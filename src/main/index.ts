@@ -164,6 +164,11 @@ function createWindow() {
     store.window = { x: b.x, y: b.y, width: b.width, height: b.height, maximized: win.isMaximized() }
   }
   win.on('close', saveBounds)
+  // Windows shutdown or logoff: before-quit and will-quit never come, so write now.
+  win.on('session-end', () => {
+    saveBounds()
+    store.flush()
+  })
 
   // The app UI never navigates; links open in the system browser.
   win.webContents.on('will-navigate', (event) => event.preventDefault())
