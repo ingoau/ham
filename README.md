@@ -22,6 +22,9 @@ HAM signs in to [Hack Club Auth](https://auth.hackclub.com) with your email, kee
 - **Local names** that only HAM keeps ("Personal", "Club leads"), to tell look-alike accounts apart. The list shows each account by its local name, then its Slack display name, Slack full name, and finally its Hack Club name. Search for them, set them in bulk, or use `{{ account.local }}` in templates.
 - **Select and bulk edit** any of those fields with Jinja templates (`{{ account.hca.first | lower }}-alt{{ index }}`, with Slack fields under `account.slack`, Slack's own fields under `account.slack.fields`, and the Slack user ID as `account.slack.id`): preview every change, apply in the background, undo. Sign out of a whole selection at once, too.
 - **View options:** sort, group and choose what each row shows, including templates.
+- **Organise the list:** pin accounts to the top, drag them into your own order, sort them into groups, and add coloured tags (as many per account as you like). Deleting a group or tag can be undone.
+- **Filters** by tag (any or all of them, or untagged) and by status: signed in, signed out, needs attention, adding.
+- **Export and import the account list** as a JSON file: emails, local names, groups, tags, pins and order, plus view settings. No sessions or tokens go in it, so imported accounts sign in again through the queue. Accounts already in HAM are left as they are.
 - **Launch Slack** for any account in its own window, signed in through Hack Club. Sign a whole selection or group in to Slack at once from the right-click menu (hidden windows finish Hack Club's Slack sign-in, then close), or turn on **Sign in to Slack automatically** in Settings for every account that's on Slack. Sign out of Slack on one account without signing out of Hack Club.
 - **Slack tokens:** sign an account in to Slack afresh and copy its `xoxd` cookie and workspace and enterprise `xoxc` tokens, one at a time or all at once as a `.env` (`SLACK_XOXD`, `SLACK_TEAM_XOXC`, `SLACK_ENTERPRISE_XOXC`, the same names as [hc-slack-auth](https://github.com/ingoau/hc-slack-auth)).
 - **The Hack Club Auth dashboard, embedded** for each account and already signed in, or popped out into its own window. It's locked to auth.hackclub.com: it can't be used to sign in to other apps, and other links open in your browser.
@@ -44,18 +47,29 @@ Download the latest build from [Releases](https://github.com/ingoau/ham/releases
 
 ## Keyboard shortcuts
 
-Cmd on macOS, Ctrl on Windows and Linux.
+Cmd on macOS, Ctrl on Windows and Linux. Alt is Option on macOS.
 
 | Shortcut | Action |
 | --- | --- |
-| Cmd+N | Add account |
+| Cmd+N | Add accounts |
 | Cmd+K or Cmd+F | Command palette: find an account or run an action |
+| Cmd+, | Settings |
 | Cmd+S | Save profile |
 | Esc | Revert unsaved changes, or close a dialog |
 | Cmd+R | Refresh the account (or reload the dashboard) |
+| Cmd+Shift+D | Switch between Profile and Hack Club Auth |
 | Cmd+1 to Cmd+9 | Switch to account 1 to 9 |
 | Up / Down | Move through the account list |
-| Cmd+Shift+D | Switch between Profile and Hack Club Auth |
+| Shift+Up / Down | Extend the selection |
+| Space | Select or deselect the focused account |
+| Cmd+click / Shift+click | Select an account / a range |
+| Cmd+A | Select all accounts (or the text in a field) |
+| Cmd+Shift+A | Deselect all |
+| Cmd+Shift+P | Pin or unpin |
+| Cmd+Alt+Up / Down | Move the account up or down (manual sort) |
+| Cmd+Shift+N | New group |
+| Cmd+Shift+T | New tag |
+| Cmd+Shift+L | Filter accounts |
 
 ## How it works
 
