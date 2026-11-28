@@ -65,8 +65,13 @@ export const ProfileForm = forwardRef<ProfileFormHandle, Props>(function Profile
     setErrors([])
     try {
       const result = await window.ham.accounts.save(account.id, draft)
-      if (!result.ok && result.reason === 'validation') setErrors(result.messages)
-      else if (!result.ok && result.reason !== 'signed-out') setErrors([result.message])
+      if (result.ok) {
+        // The server tidies values ("Bob " is saved as "Bob"): show what it kept. Only the
+        // draft: `base` catches up when the saved account arrives as a prop.
+        const saved = fromAccount(result.account)
+        setForm((f) => (f.id === result.account.id ? { ...f, draft: saved } : f))
+      } else if (result.reason === 'validation') setErrors(result.messages)
+      else if (result.reason !== 'signed-out') setErrors([result.message])
       onSaved(result)
     } finally {
       setSaving(false)

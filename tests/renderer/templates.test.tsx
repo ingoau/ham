@@ -23,6 +23,17 @@ function fakeSandbox(frame: HTMLIFrameElement, answer: (jobs: TemplateJob[]) => 
   message(win, { ready: true })
 }
 
+/** Play a sandbox that echoes each job's template after `delay(jobs)` ms. */
+function slowSandbox(frame: HTMLIFrameElement, delay: (jobs: TemplateJob[]) => number) {
+  const win = {
+    postMessage: (data: { id: number; jobs: TemplateJob[] }) => {
+      setTimeout(() => message(win, { id: data.id, results: data.jobs.map((j) => ({ ok: true, value: j.tpl })) }), delay(data.jobs))
+    }
+  }
+  Object.defineProperty(frame, 'contentWindow', { configurable: true, get: () => win })
+  message(win, { ready: true })
+}
+
 describe('TemplateEngine', () => {
   beforeEach(() => {
     // happy-dom doesn't load frame pages (and says so on the console): give the frame an empty srcdoc instead.
@@ -80,12 +91,54 @@ describe('TemplateEngine', () => {
   it('times out a frame that never loads, failing every waiting render', async () => {
     vi.useFakeTimers()
     const engine = new TemplateEngine(500, () => '')
+    let bFailed = false
     const a = expect(engine.render([job('a')])).rejects.toBeInstanceOf(TemplateTimeoutError)
-    const b = expect(engine.render([job('b')])).rejects.toBeInstanceOf(TemplateTimeoutError)
-    await vi.advanceTimersByTimeAsync(500)
+    await vi.advanceTimersByTimeAsync(300)
+    // Started later: it fails with the first, not on a timer of its own.
+    const b = engine.render([job('b')]).catch((e: unknown) => {
+      bFailed = e instanceof TemplateTimeoutError
+    })
+    await vi.advanceTimersByTimeAsync(200)
     await a
+    expect(bFailed).toBe(true)
     await b
     expect(frames()).toHaveLength(0)
+  })
+
+  it('a timed-out render’s leftovers never reset the next frame', async () => {
+    vi.useFakeTimers()
+    const engine = new TemplateEngine(500, () => '')
+    const a = engine.render([job('a')]).catch(() => 'failed')
+    await vi.advanceTimersByTimeAsync(300)
+    const b = engine.render([job('b')]).catch(() => 'failed')
+    await vi.advanceTimersByTimeAsync(200)
+    expect(await a).toBe('failed')
+    expect(await b).toBe('failed')
+
+    // C starts on a fresh frame that takes 400 ms to answer: past where B's own timer would have run out.
+    const c = engine.render([job('c')])
+    await vi.advanceTimersByTimeAsync(0)
+    const [frame] = frames()
+    slowSandbox(frame, () => 400)
+    await vi.advanceTimersByTimeAsync(400)
+    expect(await c).toEqual([{ ok: true, value: 'c' }])
+    expect(frame.isConnected).toBe(true)
+  })
+
+  it('renders a long list that takes longer than the timeout as a whole', async () => {
+    vi.useFakeTimers()
+    const engine = new TemplateEngine(2000, () => '')
+    // 1 ms a job: 8,000 jobs take 8 s, but no chunk takes more than a fraction of a second.
+    const jobs = Array.from({ length: 8000 }, (_, i) => job(`t${i}`))
+    const all = engine.render(jobs)
+    await vi.advanceTimersByTimeAsync(0)
+    const [frame] = frames()
+    slowSandbox(frame, (jobs) => jobs.length)
+    await vi.advanceTimersByTimeAsync(9000)
+    const results = await all
+    expect(results).toHaveLength(8000)
+    expect(results[7999]).toEqual({ ok: true, value: 't7999' })
+    expect(frame.isConnected).toBe(true)
   })
 })
 

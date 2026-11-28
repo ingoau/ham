@@ -45,7 +45,7 @@ function state(accounts: Account[]): AppState {
 
 let emit: (e: HamEvent) => void
 
-async function mount(accounts: Account[]) {
+async function mount(accounts: Account[], api: Record<string, unknown> = {}) {
   const ham = {
     getState: vi.fn(async () => state(accounts)),
     onEvent: vi.fn((cb: (e: HamEvent) => void) => {
@@ -53,7 +53,7 @@ async function mount(accounts: Account[]) {
       return () => {}
     }),
     ui: { contextMenu: vi.fn(async () => null) },
-    accounts: { save: vi.fn(async () => ({ ok: true })) }
+    accounts: { save: vi.fn(async () => ({ ok: true })), ...api }
   }
   ;(window as unknown as { ham: unknown }).ham = autoMock(ham)
   localStorage.clear()
@@ -172,5 +172,23 @@ describe('App: range selection', () => {
     expect(document.querySelectorAll('.account-row.checked')).toHaveLength(3)
     fireEvent.keyDown(row(list[2]), { key: 'ArrowUp', shiftKey: true })
     expect(document.querySelectorAll('.account-row.checked')).toHaveLength(2)
+  })
+})
+
+describe('App: importing', () => {
+  afterEach(() => {
+    cleanup()
+    vi.restoreAllMocks()
+  })
+
+  it('says so when every new account was added in the meantime', async () => {
+    const importConfirm = vi.fn(async () => ({ ok: true, added: 0 }))
+    await mount([acct()], { importFile: async () => ({ status: 'ready', token: 't', added: 1, existing: 0, hasView: false }), importConfirm })
+    await act(async () => emit({ type: 'menu', command: { type: 'import-accounts' } } as HamEvent))
+    await act(async () => {
+      fireEvent.click(screen.getByRole('button', { name: 'Add 1 account' }))
+    })
+    expect(importConfirm).toHaveBeenCalledWith('t', false)
+    expect(await screen.findByText('Already in HAM')).toBeTruthy()
   })
 })

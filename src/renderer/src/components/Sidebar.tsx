@@ -154,9 +154,11 @@ export function Sidebar(props: Props) {
   // A small threshold so clicks and right-clicks never start a drag.
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 6 } }))
 
-  const items = useMemo(() => listItems(groups, dragging, filtering), [groups, dragging, filtering])
-  const rowCount = useMemo(() => items.reduce((n, it) => n + (it.kind === 'row' ? 1 : 0), 0), [items])
+  const allItems = useMemo(() => listItems(groups, dragging, filtering), [groups, dragging, filtering])
+  const rowCount = useMemo(() => allItems.reduce((n, it) => n + (it.kind === 'row' ? 1 : 0), 0), [allItems])
   const virtual = rowCount > VIRTUAL_AFTER
+  // Nothing drags in a long list, so an empty section has no drop hint there.
+  const items = useMemo(() => (virtual ? allItems.filter((it) => it.kind !== 'empty') : allItems), [allItems, virtual])
   // dnd-kit can't drag between rows that aren't rendered, so long lists don't drag (Move Up/Down still work).
   const draggable = props.draggable && !virtual
   const listRef = useRef<HTMLElement>(null)
@@ -192,10 +194,14 @@ export function Sidebar(props: Props) {
     }
   })
 
-  // Long lists: bring the open account into view when it changes (arrow keys, the palette, ⌘1…).
+  // Long lists: bring the open account into view when the selection changes (arrow keys,
+  // the palette, ⌘1…), not when it only moves (a section above collapsing, a re-sort).
+  const scrolledTo = useRef<string | null>(null)
   useEffect(() => {
-    if (virtual && selectedIndex >= 0) virtualizer.scrollToIndex(selectedIndex, { align: 'auto' })
-  }, [virtual, selectedIndex, virtualizer])
+    if (!virtual || selectedIndex < 0 || scrolledTo.current === selectedId) return
+    scrolledTo.current = selectedId
+    virtualizer.scrollToIndex(selectedIndex, { align: 'auto' })
+  }, [virtual, selectedId, selectedIndex, virtualizer])
 
   const focusRow = (id: string) => {
     const el = document.getElementById(`account-${id}`)
@@ -360,7 +366,7 @@ export function Sidebar(props: Props) {
               const it = items[v.index]
               return (
                 <div key={v.key} data-index={v.index} ref={virtualizer.measureElement} className="virtual-item" style={{ transform: `translateY(${v.start}px)` }}>
-                  {it.kind === 'header' ? renderHeader(it.group) : it.kind === 'empty' ? <p className="group-empty">Drag accounts here</p> : renderRow(it.row)}
+                  {it.kind === 'header' ? renderHeader(it.group) : it.kind === 'row' ? renderRow(it.row) : null}
                 </div>
               )
             })}

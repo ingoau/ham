@@ -11,8 +11,14 @@ export interface TemplateJob {
 
 export type TemplateResult = { ok: true; value: string } | { ok: false; error: string }
 
-/** How long a batch may take before the frame is thrown away. */
+/** How long one chunk (or the frame loading) may take before the frame is thrown away. */
 export const RENDER_TIMEOUT_MS = 2000
+/**
+ * Jobs per message to the frame. Chunks go one at a time, each with its own timeout, so a
+ * long list (thousands of accounts × templates) never looks stuck, while one runaway
+ * template still holds up its chunk past the timeout.
+ */
+export const CHUNK_SIZE = 200
 
 export class TemplateTimeoutError extends Error {
   constructor() {
@@ -21,101 +27,122 @@ export class TemplateTimeoutError extends Error {
   }
 }
 
-interface Waiter {
+interface Chunk {
+  id: number
+  jobs: TemplateJob[]
   resolve(results: TemplateResult[]): void
   reject(error: Error): void
 }
 
 export class TemplateEngine {
   private frame: HTMLIFrameElement | null = null
-  private ready: Promise<void> | null = null
+  private ready = false
   private listener: ((event: MessageEvent) => void) | null = null
+  /** Bumped by every reset: a timer only acts on the frame it was set for. */
+  private generation = 0
+  /** Covers the frame loading, then the chunk in flight. */
+  private timer: ReturnType<typeof setTimeout> | null = null
+  private inFlight: Chunk | null = null
+  private readonly queue: Chunk[] = []
   private nextId = 1
-  private readonly waiting = new Map<number, Waiter>()
   private readonly cache = new Map<string, TemplateResult>()
 
   constructor(
     private readonly timeoutMs = RENDER_TIMEOUT_MS,
-    private readonly src = () => new URL('sandbox/index.html', document.baseURI).toString()
+    private readonly src = () => new URL('sandbox/index.html', document.baseURI).toString(),
+    private readonly chunkSize = CHUNK_SIZE
   ) {}
 
-  private start(): Promise<void> {
-    if (this.ready) return this.ready
-    this.ready = new Promise((resolve) => {
-      const frame = document.createElement('iframe')
-      frame.setAttribute('sandbox', 'allow-scripts')
-      frame.setAttribute('aria-hidden', 'true')
-      frame.tabIndex = -1
-      frame.style.display = 'none'
-      frame.src = this.src()
-      this.listener = (event) => {
-        if (event.source !== frame.contentWindow) return
-        const data = event.data as { ready?: boolean; id?: number; results?: TemplateResult[] }
-        if (data.ready) resolve()
-        if (typeof data.id === 'number' && data.results) {
-          this.waiting.get(data.id)?.resolve(data.results)
-          this.waiting.delete(data.id)
-        }
-      }
-      window.addEventListener('message', this.listener)
-      document.body.appendChild(frame)
-      this.frame = frame
-    })
-    return this.ready
+  private arm() {
+    if (this.timer) clearTimeout(this.timer)
+    const generation = this.generation
+    this.timer = setTimeout(() => {
+      if (generation === this.generation) this.reset(new TemplateTimeoutError())
+    }, this.timeoutMs)
   }
 
-  /** Fail every render in flight and drop the frame; the next render starts a new one. */
+  private disarm() {
+    if (this.timer) clearTimeout(this.timer)
+    this.timer = null
+  }
+
+  private start() {
+    const frame = document.createElement('iframe')
+    frame.setAttribute('sandbox', 'allow-scripts')
+    frame.setAttribute('aria-hidden', 'true')
+    frame.tabIndex = -1
+    frame.style.display = 'none'
+    frame.src = this.src()
+    this.listener = (event) => {
+      if (event.source !== frame.contentWindow || frame !== this.frame) return
+      const data = event.data as { ready?: boolean; id?: number; results?: TemplateResult[] }
+      if (data.ready && !this.ready) {
+        this.ready = true
+        this.disarm()
+        this.pump()
+      }
+      if (typeof data.id === 'number' && data.results && this.inFlight?.id === data.id) {
+        const chunk = this.inFlight
+        this.inFlight = null
+        this.disarm()
+        chunk.resolve(data.results)
+        this.pump()
+      }
+    }
+    window.addEventListener('message', this.listener)
+    document.body.appendChild(frame)
+    this.frame = frame
+    // A frame that never says it's ready is as stuck as one that never answers.
+    this.arm()
+  }
+
+  /** Send the next chunk once the frame is ready and free. */
+  private pump() {
+    if (this.inFlight || this.queue.length === 0) return
+    if (!this.frame) return this.start()
+    if (!this.ready) return
+    const chunk = this.queue.shift()!
+    this.inFlight = chunk
+    this.arm()
+    this.frame.contentWindow!.postMessage({ id: chunk.id, jobs: chunk.jobs }, '*')
+  }
+
+  /** Fail every outstanding render (sent or still queued) and drop the frame; the next render starts a new one. */
   private reset(error: Error) {
+    this.generation++
+    this.disarm()
     if (this.listener) window.removeEventListener('message', this.listener)
     this.frame?.remove()
     this.frame = null
-    this.ready = null
+    this.ready = false
     this.listener = null
-    const waiters = [...this.waiting.values()]
-    this.waiting.clear()
-    for (const w of waiters) w.reject(error)
+    const failed = [...(this.inFlight ? [this.inFlight] : []), ...this.queue.splice(0)]
+    this.inFlight = null
+    for (const c of failed) c.reject(error)
   }
 
   /** Render jobs (cached by template and context). Rejects with TemplateTimeoutError if the frame stops answering. */
   async render(jobs: TemplateJob[]): Promise<TemplateResult[]> {
     const keys = jobs.map((j) => JSON.stringify([j.tpl, j.ctx]))
-    const missing = jobs.filter((_, i) => !this.cache.has(keys[i]))
+    // Read from the cache once: it may be cleared while this batch fills it.
+    const found = new Map(keys.flatMap((k) => (this.cache.has(k) ? [[k, this.cache.get(k)!] as const] : [])))
+    const missing = jobs.filter((_, i) => !found.has(keys[i]))
     if (missing.length > 0) {
-      const results = await this.withTimeout(async (id) => {
-        await this.start()
-        return new Promise<TemplateResult[]>((resolve, reject) => {
-          this.waiting.set(id, { resolve, reject })
-          this.frame!.contentWindow!.postMessage({ id, jobs: missing }, '*')
-        })
-      })
+      const chunks: Promise<TemplateResult[]>[] = []
+      for (let i = 0; i < missing.length; i += this.chunkSize) {
+        const part = missing.slice(i, i + this.chunkSize)
+        chunks.push(new Promise((resolve, reject) => this.queue.push({ id: this.nextId++, jobs: part, resolve, reject })))
+      }
+      this.pump()
+      const results = (await Promise.all(chunks)).flat()
       missing.forEach((job, i) => {
+        const key = JSON.stringify([job.tpl, job.ctx])
+        found.set(key, results[i])
         if (this.cache.size > 5000) this.cache.clear()
-        this.cache.set(JSON.stringify([job.tpl, job.ctx]), results[i])
+        this.cache.set(key, results[i])
       })
     }
-    return keys.map((k) => this.cache.get(k)!)
-  }
-
-  private withTimeout(fn: (id: number) => Promise<TemplateResult[]>): Promise<TemplateResult[]> {
-    const id = this.nextId++
-    return new Promise((resolve, reject) => {
-      // Covers the frame loading too: a frame that never says it's ready is as stuck as one that never answers.
-      const timer = setTimeout(() => {
-        // Reject this render even if it was still waiting for the frame to load (it isn't in `waiting` yet).
-        reject(new TemplateTimeoutError())
-        this.reset(new TemplateTimeoutError())
-      }, this.timeoutMs)
-      fn(id).then(
-        (results) => {
-          clearTimeout(timer)
-          resolve(results)
-        },
-        (error: Error) => {
-          clearTimeout(timer)
-          reject(error)
-        }
-      )
-    })
+    return keys.map((k) => found.get(k)!)
   }
 }
 

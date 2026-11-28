@@ -559,6 +559,8 @@ export function App() {
     if (!r.ok) return void toast.error(r.message)
     if (r.added > 0) toast(`Adding ${r.added} ${r.added === 1 ? 'account' : 'accounts'}`)
     else if (applyView) toast.success('View settings applied')
+    // Every new account was added some other way in the meantime.
+    else toast('Already in HAM')
   }
 
   const addEmails = async (emails: string[]) => {
